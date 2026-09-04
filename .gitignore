@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+output/
+data/generated/
+data/dummy/
+data/test_images/
+db/*.sqlite3-journal
+# db/leapconnect.sqlite3 は意図的にコミットする(投稿履歴・重複チェック・分析データの永続化のため)
+.DS_Store

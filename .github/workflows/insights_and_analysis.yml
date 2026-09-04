@@ -1,0 +1,41 @@
+name: leap_connect Insights Fetch & Analysis
+
+on:
+  schedule:
+    # 毎日 22:00 JST (UTC 13:00)。前日以前の投稿(24時間以上経過)のインサイトを取得し、分析する
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  insights:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch post insights
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: python scripts/fetch_insights.py
+
+      - name: Analyze performance and adjust category weights
+        run: python scripts/analyze_performance.py
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add db/leapconnect.sqlite3
+          git diff --cached --quiet || git commit -m "chore: update insights & performance analysis [skip ci]"
+          git push
