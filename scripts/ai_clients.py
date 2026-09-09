@@ -25,7 +25,6 @@ def claude_json(
     user_prompt: str,
     images: list[bytes] | None = None,
     max_tokens: int = 4000,
-    temperature: float = 1.0,
 ) -> dict:
     """Anthropic Messages APIを呼び、JSON形式のレスポンスをパースして返す。
     imagesを渡すとvision入力(品質審査で表紙画像を見せる用途)として送信する。"""
@@ -51,7 +50,6 @@ def claude_json(
     resp = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=max_tokens,
-        temperature=temperature,
         system=system_prompt,
         messages=[{"role": "user", "content": content}],
     )

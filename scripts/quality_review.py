@@ -84,7 +84,7 @@ def review_quality(anthropic_api_key: str, script: dict, image_paths: list[str])
         hashtags=" ".join(script.get("hashtags", [])),
     )
 
-    result = claude_json(anthropic_api_key, REVIEW_SYSTEM_PROMPT, prompt, images=images, max_tokens=2000, temperature=0.3)
+    result = claude_json(anthropic_api_key, REVIEW_SYSTEM_PROMPT, prompt, images=images, max_tokens=2000)
     if "total" not in result:
         scores = result.get("scores", {})
         result["total"] = sum(scores.values()) if scores else 0
