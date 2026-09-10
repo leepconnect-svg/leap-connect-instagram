@@ -19,6 +19,13 @@ SYSTEM_PROMPT = BRAND_CONTEXT + """
 Instagramカルーセル投稿(6枚)の台本一式を作ることです。
 
 【6枚の設計原則】
+・スライドは必ずちょうど6枚(1枚目のhookと6枚目のsummary_ctaを含めて6枚)。
+  絶対にこれより多くても少なくてもいけない
+・テーマが「5選」「7つの」のような数字を含む場合でも、実際に作るコンテンツ項目は
+  「6枚 - hook(1枚) - summary_cta(1枚) = 4項目」に収める。
+  例えば元テーマが「空室が長引く理由5選」であっても、見出し(title/heading)は
+  「4つのポイント」のように実際の項目数に合わせて言い換えるか、
+  5項目のうち重要度の低いものを1つ削って4項目に絞ること
 ・毎日同じ構成をコピーしない。指定された構成タイプに合わせて6枚を設計する
 ・1枚目は最重要。新規ユーザーが「自分に関係ある」と思う具体的なタイトルにする。
   会社紹介や営業文句から始めない。「オーナー必見！」のような紋切り型だけで終わらせない。
@@ -70,7 +77,14 @@ USER_PROMPT_TEMPLATE = """次のテーマで台本を作成してください。
   "cta_text": "6枚目に使ったCTA文と同じもの"
 }}
 
-slidesは必ず6件にしてください。
+slides配列の要素数は必ずちょうど6にしてください(5でも7でも不可)。
+"""
+
+_RETRY_NOTE = """
+
+【重要・厳守】前回の出力はslidesが{actual}件でした。ちょうど6件にしてください。
+テーマの数字表現(「5選」等)と実際の項目数が一致しなくても構いません。
+見出しの文言を項目数に合わせて調整してください。
 """
 
 
@@ -120,8 +134,16 @@ def generate_script(anthropic_api_key: str, topic: dict) -> dict:
     system = SYSTEM_PROMPT.format(cta_examples="\n  ".join(f"- {c}" for c in CTA_EXAMPLES))
 
     result = claude_json(anthropic_api_key, system, prompt, max_tokens=4000)
-
     slides = result.get("slides", [])
+
+    # 6枚ちょうどでなければ、修正指示を添えて最大2回まで再試行する
+    for _ in range(2):
+        if len(slides) == 6:
+            break
+        retry_prompt = prompt + _RETRY_NOTE.format(actual=len(slides))
+        result = claude_json(anthropic_api_key, system, retry_prompt, max_tokens=4000)
+        slides = result.get("slides", [])
+
     if len(slides) != 6:
         raise RuntimeError(f"スライドが6枚ではありません(実際: {len(slides)}枚): {result}")
 
