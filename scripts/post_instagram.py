@@ -36,13 +36,31 @@ def _check(resp: requests.Response):
     return resp.json()
 
 
-def create_carousel_item(ig_user_id: str, access_token: str, image_url: str) -> str:
-    resp = requests.post(
-        f"{GRAPH_BASE}/{ig_user_id}/media",
-        data={"image_url": image_url, "is_carousel_item": "true", "access_token": access_token},
-        timeout=60,
-    )
-    return _check(resp)["id"]
+def create_carousel_item(ig_user_id: str, access_token: str, image_url: str, max_retries: int = 3) -> str:
+    """画像URLからカルーセル用メディアコンテナを作成する。
+
+    アップロード直後の画像は、ホスティング側のCDN伝播が間に合わず
+    Instagram側の取得が一時的に失敗することがある
+    ("Media download has failed. The media URI doesn't meet our requirements.")。
+    そのため失敗時は待機してリトライする。
+    """
+    last_error = None
+    for attempt in range(max_retries):
+        if attempt > 0:
+            time.sleep(5 * attempt)  # 5s, 10s, ... と待機を伸ばす
+        resp = requests.post(
+            f"{GRAPH_BASE}/{ig_user_id}/media",
+            data={"image_url": image_url, "is_carousel_item": "true", "access_token": access_token},
+            timeout=60,
+        )
+        try:
+            return _check(resp)["id"]
+        except InstagramAPIError as e:
+            last_error = e
+            if "could not be fetched" in str(e) or "Media download has failed" in str(e):
+                continue  # 取得失敗はリトライ対象
+            raise  # それ以外のエラーは即座に失敗させる
+    raise last_error
 
 
 def wait_until_ready(container_id: str, access_token: str, timeout_sec: int = 150) -> None:
