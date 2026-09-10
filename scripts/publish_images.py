@@ -51,6 +51,9 @@ def publish_images_to_github(image_paths: list[str], repo_root: str) -> list[str
     rel_paths = [os.path.relpath(os.path.abspath(p), repo_root) for p in image_paths]
 
     _run(["git", "add", "-f", *rel_paths], cwd=repo_root)
+    # 実行中にDB(db/leapconnect.sqlite3)にも書き込みが発生しているため、
+    # 未ステージの変更が残っているとpull --rebaseが失敗する。まとめてコミットしておく。
+    _run(["git", "add", "-A"], cwd=repo_root)
 
     diff_check = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
     if diff_check.returncode != 0:  # 差分あり = コミットすべき内容がある
