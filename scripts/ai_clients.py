@@ -13,10 +13,20 @@ OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
-    text = re.sub(r"^```(json)?", "", text.strip())
-    text = re.sub(r"```$", "", text.strip())
-    return json.loads(text.strip())
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(json)?", "", cleaned)
+    cleaned = re.sub(r"```$", "", cleaned.strip())
+    try:
+        return json.loads(cleaned.strip())
+    except json.JSONDecodeError as e:
+        # 応答が途中で切れている(max_tokens不足)等が主な原因。
+        # 生のテキストの末尾を添えて原因を特定しやすくする。
+        snippet = cleaned[-300:] if len(cleaned) > 300 else cleaned
+        raise RuntimeError(
+            f"AIの応答がJSONとして解析できませんでした({e})。"
+            f"max_tokens不足で応答が途中で切れている可能性があります。"
+            f"応答の末尾300文字: ...{snippet}"
+        ) from e
 
 
 def claude_json(
