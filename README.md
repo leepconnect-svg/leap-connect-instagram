@@ -29,11 +29,18 @@ AI品質審査(100点満点、80点未満は自動修正) → Instagram公式API
 |---|---|---|---|
 | Anthropic API (Claude) | 台本生成・品質審査 | 1投稿あたり数円〜十数円程度 | https://console.anthropic.com/ |
 | OpenAI API (gpt-image-1) | 6枚の背景写真生成 | 1投稿(6枚)あたり数十円〜100円程度 | https://platform.openai.com/ |
-| ImgBB | 画像を一時的に公開URL化 | 無料 | https://api.imgbb.com/ |
 | Instagram (leap_connect) | 投稿先 | - | ビジネス/クリエイターアカウント化が必要 |
 
 **月間コスト目安(1日1投稿・6枚)**: おおよそ数千円程度(画像生成が主なコスト)。
 画質設定(`OPENAI_IMAGE_MODEL`のquality)を下げる/画像を使い回す等でさらに抑制可能です。
+
+**画像の公開方法について**: 完成した画像は、このGitHubリポジトリ自身にコミットし、
+jsdelivr CDN経由でInstagramから読み込ませる方式です(外部の無料画像ホストは
+Instagram側からの取得が不安定だったため不採用としました)。
+この方式が機能するには**リポジトリがPublicである必要があります**
+(Settings → General → Danger Zone → Change visibility)。
+GitHub Secretsに登録したAPIキー等は、リポジトリの公開設定に関わらず常に暗号化されて
+保護されるため、Publicにしても漏洩しません。
 
 **注意**: Anthropic APIキーは、Claude Codeの月額契約とは別の従量課金契約です。console.anthropic.comで新規に発行し、支払い方法を登録してください。
 
@@ -102,7 +109,6 @@ git push -u origin main
 |---|---|
 | `ANTHROPIC_API_KEY` | 1章で取得 |
 | `OPENAI_API_KEY` | 1章で取得 |
-| `IMGBB_API_KEY` | 1章で取得 |
 | `IG_USER_ID` | 2章で取得 |
 | `IG_ACCESS_TOKEN` | 2章で取得 |
 
@@ -151,7 +157,7 @@ scripts/
   layouts.py              STEP4: ブランドデザイン(ネイビー×ホワイト×ゴールド)、6種のレイアウト(A/C/E/G/I/J)
   compose_slides.py       台本+写真からレイアウトを適用して6枚を書き出す
   quality_review.py       STEP5: AI品質審査(100点満点、vision入力)+自動修正
-  upload_image.py         ImgBBへ画像アップロード(公開URL化)
+  publish_images.py        画像をリポジトリにcommit&push、jsdelivr経由の公開URL化
   post_instagram.py       STEP6: Instagram API(Instagram Login方式)でカルーセル投稿・インサイト取得
   setup_helper.py          初回セットアップ用(アクセストークン取得補助)
   refresh_token.py         長期トークンの更新

@@ -16,6 +16,7 @@ import datetime
 import json
 import os
 import sys
+import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -27,7 +28,7 @@ from generate_script import generate_script
 from generate_images import generate_slide_images
 from compose_slides import compose_slides
 from quality_review import review_quality, revise_script
-from upload_image import upload_images
+from publish_images import publish_images_to_github
 from post_instagram import post_carousel
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -79,7 +80,7 @@ def main():
     dry_run = os.environ.get("DRY_RUN", "1") == "1"
     brand_handle = os.environ.get("BRAND_HANDLE", "@leap_connect")
 
-    required = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "IMGBB_API_KEY"]
+    required = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
     if not dry_run:
         required += ["IG_USER_ID", "IG_ACCESS_TOKEN"]
     env = require_env(*required)
@@ -185,7 +186,11 @@ def main():
 
     print("[7/7] Instagramへ投稿中...")
     try:
-        image_urls = upload_images(env["IMGBB_API_KEY"], image_paths)
+        print("  画像をリポジトリに公開中(GitHub + jsdelivr)...")
+        image_urls = publish_images_to_github(image_paths, repo_root=ROOT)
+        for u in image_urls:
+            print(f"    {u}")
+        time.sleep(3)  # CDNが新規ファイルを認識するまでの安全マージン
         media_id = post_carousel(env["IG_USER_ID"], env["IG_ACCESS_TOKEN"], image_urls, caption)
         db.update_post(post_id, status="posted", ig_media_id=media_id, posted_at=db.now_iso())
         print(f"  公開しました: media_id={media_id}")
