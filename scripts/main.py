@@ -31,7 +31,7 @@ from upload_image import upload_images
 from post_instagram import post_carousel
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-QUALITY_THRESHOLD = 80
+QUALITY_THRESHOLD = int(os.environ.get("QUALITY_THRESHOLD", "80"))
 MAX_REVISIONS = 2
 
 

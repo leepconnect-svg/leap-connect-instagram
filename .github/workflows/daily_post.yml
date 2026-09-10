@@ -10,6 +10,10 @@ on:
         description: "DRY_RUN (1にすると実際には投稿しない/生成のみ確認)"
         required: false
         default: "0"
+      quality_threshold:
+        description: "品質審査の合格ライン(0〜100)。通常は80のままでOK。動作確認用に一時的に下げたい場合のみ変更"
+        required: false
+        default: "80"
 
 permissions:
   contents: write
@@ -38,6 +42,7 @@ jobs:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           BRAND_HANDLE: ${{ vars.BRAND_HANDLE }}
           DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+          QUALITY_THRESHOLD: ${{ github.event.inputs.quality_threshold || '80' }}
         run: python scripts/main.py
 
       - name: Commit updated database
