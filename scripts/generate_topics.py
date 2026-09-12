@@ -70,6 +70,44 @@ USER_PROMPT_TEMPLATE = """次の条件でテーマ候補を{n}件作成してく
 """
 
 
+_CANDIDATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "theme": {"type": "string"},
+        "sub_theme": {"type": "string"},
+        "category": {"type": "string"},
+        "angle": {"type": "string"},
+        "structure_type": {"type": "string"},
+        "hook_idea": {"type": "string"},
+        "scores": {
+            "type": "object",
+            "properties": {
+                "follow_potential": {"type": "number"},
+                "save_potential": {"type": "number"},
+                "share_potential": {"type": "number"},
+                "owner_utility": {"type": "number"},
+                "sublease_relevance": {"type": "number"},
+                "novelty": {"type": "number"},
+                "buzz": {"type": "number"},
+            },
+            "required": [
+                "follow_potential", "save_potential", "share_potential",
+                "owner_utility", "sublease_relevance", "novelty", "buzz",
+            ],
+        },
+    },
+    "required": ["theme", "sub_theme", "category", "angle", "structure_type", "hook_idea", "scores"],
+}
+
+TOPICS_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidates": {"type": "array", "items": _CANDIDATE_SCHEMA, "minItems": 8},
+    },
+    "required": ["candidates"],
+}
+
+
 def _category_overlap_adjustment(category: str, recent_posts: list[dict], category_weights: dict[str, float]) -> float:
     """直近投稿でのカテゴリ出現比率と目標重みを比較し、過少なら加点・過多なら減点する(-10〜+10)"""
     if not recent_posts:
@@ -113,8 +151,10 @@ def generate_and_select_topic(anthropic_api_key: str, n_candidates: int = 10) ->
         categories="/".join(CATEGORY_LIST),
     )
 
-    result = claude_json(anthropic_api_key, SYSTEM_PROMPT, prompt, max_tokens=4000)
+    result = claude_json(anthropic_api_key, SYSTEM_PROMPT, prompt, max_tokens=4000, tool_schema=TOPICS_TOOL_SCHEMA)
     candidates = result.get("candidates", [])
+    # スキーマ上required指定していても、念のため必須キー欠落分は除外しておく
+    candidates = [c for c in candidates if {"theme", "category"}.issubset(c.keys())]
     if not candidates:
         raise RuntimeError(f"テーマ候補が生成されませんでした: {result}")
 

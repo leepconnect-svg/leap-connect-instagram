@@ -13,11 +13,9 @@ OPENAI_IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
 # json.loads()でパースする方式は、応答の途中切れ・書式崩れで壊れやすいため、
 # Anthropicのtool use(構造化出力)機能を使い、モデルの応答自体をパース済みの
 # 辞書として受け取る方式に統一する。
-_EMIT_RESULT_TOOL = {
-    "name": "emit_result",
-    "description": "指示された内容の結果を構造化データとして返す",
-    "input_schema": {"type": "object"},
-}
+# input_schemaは呼び出し側でrequired付きの具体的なスキーマを渡すことを推奨する
+# (スキーマなしの{"type":"object"}だけだと、必須キーが時々欠落することがあるため)。
+_DEFAULT_SCHEMA = {"type": "object"}
 
 
 def claude_json(
@@ -26,10 +24,13 @@ def claude_json(
     user_prompt: str,
     images: list[bytes] | None = None,
     max_tokens: int = 4000,
+    tool_schema: dict | None = None,
 ) -> dict:
     """Anthropic Messages APIをtool use(強制的な構造化出力)で呼び、
     結果をパース済みの辞書として返す。
-    imagesを渡すとvision入力(品質審査で表紙画像を見せる用途)として送信する。"""
+    imagesを渡すとvision入力(品質審査で表紙画像を見せる用途)として送信する。
+    tool_schemaに{"type":"object","properties":{...},"required":[...]}形式の
+    JSON Schemaを渡すと、必須キーの欠落を防げる(強く推奨)。"""
     from anthropic import Anthropic
 
     client = Anthropic(api_key=api_key)
@@ -49,11 +50,17 @@ def claude_json(
             )
     content.append({"type": "text", "text": user_prompt})
 
+    tool = {
+        "name": "emit_result",
+        "description": "指示された内容の結果を構造化データとして返す",
+        "input_schema": tool_schema or _DEFAULT_SCHEMA,
+    }
+
     resp = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=max_tokens,
         system=system_prompt,
-        tools=[_EMIT_RESULT_TOOL],
+        tools=[tool],
         tool_choice={"type": "tool", "name": "emit_result"},
         messages=[{"role": "user", "content": content}],
     )

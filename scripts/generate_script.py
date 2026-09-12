@@ -87,6 +87,35 @@ _RETRY_NOTE = """
 見出しの文言を項目数に合わせて調整してください。
 """
 
+_SLIDE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "role": {"type": "string"},
+        "heading": {"type": "string"},
+        "body": {"type": "string"},
+        "image_prompt": {"type": "string"},
+    },
+    "required": ["role", "heading", "body", "image_prompt"],
+}
+
+# 必須キーの欠落(例: hashtagsが無い等)を防ぐため、明示的なJSON Schemaを渡す。
+SCRIPT_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "slides": {
+            "type": "array",
+            "items": _SLIDE_SCHEMA,
+            "minItems": 6,
+            "maxItems": 6,
+        },
+        "caption": {"type": "string"},
+        "hashtags": {"type": "array", "items": {"type": "string"}, "minItems": 8},
+        "cta_text": {"type": "string"},
+    },
+    "required": ["title", "slides", "caption", "hashtags", "cta_text"],
+}
+
 
 LAYOUT_AFFINITY = {
     "チェックリスト型": ["C", "J", "A"],
@@ -133,17 +162,21 @@ def generate_script(anthropic_api_key: str, topic: dict) -> dict:
     )
     system = SYSTEM_PROMPT.format(cta_examples="\n  ".join(f"- {c}" for c in CTA_EXAMPLES))
 
-    result = claude_json(anthropic_api_key, system, prompt, max_tokens=4000)
+    result = claude_json(anthropic_api_key, system, prompt, max_tokens=4000, tool_schema=SCRIPT_TOOL_SCHEMA)
     slides = result.get("slides", [])
 
     # 6枚ちょうどでなければ、修正指示を添えて最大2回まで再試行する
     for _ in range(2):
-        if len(slides) == 6:
+        required_keys = {"title", "slides", "caption", "hashtags", "cta_text"}
+        if len(slides) == 6 and required_keys.issubset(result.keys()):
             break
         retry_prompt = prompt + _RETRY_NOTE.format(actual=len(slides))
-        result = claude_json(anthropic_api_key, system, retry_prompt, max_tokens=4000)
+        result = claude_json(anthropic_api_key, system, retry_prompt, max_tokens=4000, tool_schema=SCRIPT_TOOL_SCHEMA)
         slides = result.get("slides", [])
 
+    missing = {"title", "slides", "caption", "hashtags", "cta_text"} - result.keys()
+    if missing:
+        raise RuntimeError(f"台本の必須項目が欠落しています({missing}): {result}")
     if len(slides) != 6:
         raise RuntimeError(f"スライドが6枚ではありません(実際: {len(slides)}枚): {result}")
 

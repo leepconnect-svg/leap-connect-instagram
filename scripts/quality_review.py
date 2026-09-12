@@ -10,6 +10,35 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from ai_clients import claude_json
 from brand_context import BRAND_CONTEXT
+from generate_script import SCRIPT_TOOL_SCHEMA
+
+REVIEW_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scores": {
+            "type": "object",
+            "properties": {
+                "hook_strength": {"type": "number"},
+                "save_worthy": {"type": "number"},
+                "share_worthy": {"type": "number"},
+                "owner_utility": {"type": "number"},
+                "clarity_for_new_users": {"type": "number"},
+                "vacancy_management_relevance": {"type": "number"},
+                "originality": {"type": "number"},
+                "follow_reason": {"type": "number"},
+            },
+            "required": [
+                "hook_strength", "save_worthy", "share_worthy", "owner_utility",
+                "clarity_for_new_users", "vacancy_management_relevance", "originality", "follow_reason",
+            ],
+        },
+        "total": {"type": "number"},
+        "strengths": {"type": "array", "items": {"type": "string"}},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "revision_instructions": {"type": "string"},
+    },
+    "required": ["scores", "total", "strengths", "issues", "revision_instructions"],
+}
 
 REVIEW_SYSTEM_PROMPT = BRAND_CONTEXT + """
 
@@ -84,7 +113,9 @@ def review_quality(anthropic_api_key: str, script: dict, image_paths: list[str])
         hashtags=" ".join(script.get("hashtags", [])),
     )
 
-    result = claude_json(anthropic_api_key, REVIEW_SYSTEM_PROMPT, prompt, images=images, max_tokens=4000)
+    result = claude_json(
+        anthropic_api_key, REVIEW_SYSTEM_PROMPT, prompt, images=images, max_tokens=4000, tool_schema=REVIEW_TOOL_SCHEMA
+    )
     if "total" not in result:
         scores = result.get("scores", {})
         result["total"] = sum(scores.values()) if scores else 0
@@ -121,7 +152,16 @@ def revise_script(anthropic_api_key: str, script: dict, review_result: dict) -> 
         issues="、".join(review_result.get("issues", [])),
         revision_instructions=review_result.get("revision_instructions", ""),
     )
-    result = claude_json(anthropic_api_key, REVISE_SYSTEM_PROMPT, prompt, max_tokens=4000)
+    result = claude_json(anthropic_api_key, REVISE_SYSTEM_PROMPT, prompt, max_tokens=4000, tool_schema=SCRIPT_TOOL_SCHEMA)
+
+    # 必須キーが万一欠落していたら、修正前のscriptの値で安全に補う(クラッシュさせない)
+    for key in ("title", "slides", "caption", "hashtags", "cta_text"):
+        if key not in result or not result[key]:
+            result[key] = script.get(key)
+
+    # slides数が6件でなくなってしまった場合も、修正前のslidesを使う(内容改善は諦めるが安全側に倒す)
+    if len(result.get("slides", [])) != 6:
+        result["slides"] = script["slides"]
 
     # image_prompt/roleは元のスライドから強制的に引き継ぐ(写真との対応ズレを防ぐ)
     for i, slide in enumerate(result.get("slides", [])):
