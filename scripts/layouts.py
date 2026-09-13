@@ -521,21 +521,39 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
         draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
         y += 150
 
-    # 本文
+    # 下部のチェックバッジ(0〜2個)の占有領域を先に計算しておく
+    # (本文の描画量に関わらず、バッジと重ならないようにするため)
+    bullets = slide.get("bullets") or []
+    gap, est_h = 18, 62
+    bullets_zone_h = (est_h * len(bullets) + gap * (len(bullets) - 1)) if bullets else 0
+    bullets_top = HEIGHT - FOOTER_H - 40 - bullets_zone_h
+
+    # 本文(バッジ領域と重ならない高さに収まるようフォントサイズ/行数を調整する)
     if slide.get("body"):
         y += 22
-        b_font, b_lines = fit_wrapped_text(draw, slide["body"], FONT_BOLD, text_max_w, 34, 26, 5)
-        for line in b_lines:
-            draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
-            y += int(b_font.size * 1.6)
+        available_h = bullets_top - 24 - y  # バッジとの間に最低限の余白を確保
+        if available_h > 40:
+            b_font, b_lines, b_line_h = None, [], 0
+            for size in range(34, 23, -2):
+                candidate = _f(FONT_BOLD, size)
+                lines = wrap_text(draw, slide["body"], candidate, text_max_w)
+                line_h = int(size * 1.6)
+                if len(lines) <= 5 and line_h * len(lines) <= available_h:
+                    b_font, b_lines, b_line_h = candidate, lines, line_h
+                    break
+                if b_font is None:
+                    b_font, b_lines, b_line_h = candidate, lines, line_h
+            max_fit_lines = max(1, int(available_h // b_line_h))
+            if len(b_lines) > max_fit_lines:
+                b_lines = b_lines[:max_fit_lines]
+                if b_lines:
+                    b_lines[-1] = (b_lines[-1][:-1] + "…") if len(b_lines[-1]) > 1 else "…"
+            for line in b_lines:
+                draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
+                y += b_line_h
 
-    # 下部のチェックバッジ(0〜2個)
-    bullets = slide.get("bullets") or []
     if bullets:
-        # バッジの合計高さを見積もって、下端(フッター上)から積み上げる
-        gap = 18
-        est_h = 62
-        by = HEIGHT - FOOTER_H - 40 - (est_h * len(bullets) + gap * (len(bullets) - 1))
+        by = bullets_top
         for b in bullets:
             h = _bullet_badge(draw, b, MARGIN, by, WIDTH - MARGIN * 2)
             by += h + gap

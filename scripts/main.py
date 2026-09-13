@@ -157,27 +157,15 @@ def main():
             cta_text=script.get("cta_text"),
             image_paths=image_paths,
         )
-
-        if review.get("total", 0) < QUALITY_THRESHOLD:
-            fail(post_id, f"品質スコアが{QUALITY_THRESHOLD}点未満のため投稿を中止しました(最終{review.get('total')}点)。issues={review.get('issues')}")
-            sys.exit(1)
+        quality_passed = review.get("total", 0) >= QUALITY_THRESHOLD
 
     except Exception:
         fail(post_id, f"品質審査でエラー:\n{traceback.format_exc()}")
         sys.exit(1)
 
-    print("[6/7] 最終バリデーション中...")
-    errors = validate_script_and_images(script, image_paths)
-    if errors:
-        fail(post_id, f"最終バリデーションエラー: {errors}")
-        sys.exit(1)
-
-    caption = build_caption(script)
-    db.update_post(post_id, status="ready")
-
-    # DRY_RUNでも画像はリポジトリにcommit&pushする(投稿はしないが、
-    # 出来上がりをGitHub上で確認できるようにするため)
-    print("[7/7] 画像をリポジトリに公開中(GitHub + jsdelivr)...")
+    # 品質基準を満たさなかった場合も、確認できるように画像だけはリポジトリに残す
+    # (Instagramへの投稿は絶対にしない)
+    print("[6/7] 画像をリポジトリに公開中(GitHub + jsdelivr、確認用)...")
     try:
         image_urls = publish_images_to_github(image_paths, repo_root=ROOT)
         for u in image_urls:
@@ -185,6 +173,19 @@ def main():
     except Exception:
         fail(post_id, f"画像の公開でエラー:\n{traceback.format_exc()}")
         sys.exit(1)
+
+    if not quality_passed:
+        fail(post_id, f"品質スコアが{QUALITY_THRESHOLD}点未満のため投稿を中止しました(最終{review.get('total')}点、上記URLで内容は確認可能)。issues={review.get('issues')}")
+        sys.exit(1)
+
+    print("[7/7] 最終バリデーション中...")
+    errors = validate_script_and_images(script, image_paths)
+    if errors:
+        fail(post_id, f"最終バリデーションエラー: {errors}")
+        sys.exit(1)
+
+    caption = build_caption(script)
+    db.update_post(post_id, status="ready")
 
     if dry_run:
         print("[DRY_RUN] Instagramへの投稿はスキップしました(画像は上記URLで確認できます)")
