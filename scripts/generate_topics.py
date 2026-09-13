@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ai_clients import claude_json
-from brand_context import BRAND_CONTEXT, CATEGORY_LIST, ANGLE_HINTS, STRUCTURE_TYPES
+from brand_context import BRAND_CONTEXT, CATEGORY_LIST, ANGLE_HINTS, STRUCTURE_TYPES, SPACE_USE_CASES
 from db import db
 
 SYSTEM_PROMPT = BRAND_CONTEXT + """
@@ -35,12 +35,16 @@ USER_PROMPT_TEMPLATE = """次の条件でテーマ候補を{n}件作成してく
 【重複禁止: 直近の投稿テーマ・タイトル一覧】
 {recent}
 
-【特に重要】
-過去に「空室オーナー必見！空室を活用できるレンタルサロン活用法3選」というテーマの
-反応が良かった実績があります。これは「空室×別用途×収益化」という構造が刺さった可能性が高い、
-という仮説として扱ってください。ただしこの投稿のコピーは禁止です。
-この構造(空室×別用途×収益化)を抽出しつつ、レンタルスペース/撮影スタジオ/ネイル/エステ/
-パーソナルジム/SOHO/事務所/教室/会議室/法人利用/短期利用など、別の切り口で1〜2件は展開してください。
+【特に重要: 空室の時間貸し/多用途活用(新事業の柱)】
+会社として「空室をスペースマーケットのように時間単位で多用途に貸し出す」サービスを
+新しい事業の柱として展開していく方針です。過去に「空室オーナー必見！空室を活用できる
+レンタルサロン活用法3選」というテーマの反応が良かった実績もあり、この切り口は
+単発の話題ではなく継続的な主力テーマとして扱ってください。
+{n}件中3件前後は、この「空室の時間貸し/多用途活用」を切り口にしてください
+(ただし過去投稿と同じ文言・構成のコピーは禁止。毎回違う用途例・違う構成タイプで展開する)。
+用途例のローテーション候補: {space_use_cases}
+（例: 「◯◯という選択肢も」「空室が◯◯に変わる」「時間貸しという考え方」等、
+切り口や見せ方は毎回変える）
 それ以外の候補は幅広いテーマ・カテゴリから作成してください。
 
 出力は以下のJSON形式のみ。前後の説明文やコードブロック記号は付けないこと。
@@ -149,6 +153,7 @@ def generate_and_select_topic(anthropic_api_key: str, n_candidates: int = 10) ->
         structures="、".join(STRUCTURE_TYPES),
         recent="\n".join(f"- {t}" for t in recent_texts[-25:]) if recent_texts else "(まだ投稿履歴なし)",
         categories="/".join(CATEGORY_LIST),
+        space_use_cases="、".join(SPACE_USE_CASES),
     )
 
     result = claude_json(anthropic_api_key, SYSTEM_PROMPT, prompt, max_tokens=4000, tool_schema=TOPICS_TOOL_SCHEMA)
