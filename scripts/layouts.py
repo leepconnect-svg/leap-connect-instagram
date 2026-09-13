@@ -143,7 +143,7 @@ def _load_photo(photo_path: str | None) -> Image.Image | None:
 
 
 # ============================================================ Layout A ====
-def render_A(slide, index, total, photo_path, brand_handle, accent):
+def render_A(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """フルブリード写真＋下部に黄色マーカー見出し。1枚目の主力レイアウト"""
     img = full_bleed_bg(photo_path, top_alpha=0.15, bottom_alpha=0.82)
     draw = ImageDraw.Draw(img)
@@ -188,7 +188,7 @@ def render_A(slide, index, total, photo_path, brand_handle, accent):
 
 
 # ============================================================ Layout C ====
-def render_C(slide, index, total, photo_path, brand_handle, accent):
+def render_C(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """チェックリスト: フルブリード写真＋大きなチェックアイコン＋中央下部にテキスト"""
     img = full_bleed_bg(photo_path, top_alpha=0.35, bottom_alpha=0.88)
     draw = ImageDraw.Draw(img)
@@ -246,7 +246,7 @@ def render_C(slide, index, total, photo_path, brand_handle, accent):
 
 
 # ============================================================ Layout E ====
-def render_E(slide, index, total, photo_path, brand_handle, accent):
+def render_E(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """問題→原因→対策: フルブリード写真＋役割バッジ＋左下寄せの太字見出し"""
     img = full_bleed_bg(photo_path, top_alpha=0.10, bottom_alpha=0.85)
     draw = ImageDraw.Draw(img)
@@ -287,7 +287,7 @@ def render_E(slide, index, total, photo_path, brand_handle, accent):
 
 
 # ============================================================ Layout G ====
-def render_G(slide, index, total, photo_path, brand_handle, accent):
+def render_G(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """ランキング/数字強調: フルブリード写真＋アウトライン数字＋太字見出し"""
     img = full_bleed_bg(photo_path, top_alpha=0.20, bottom_alpha=0.85)
     draw = ImageDraw.Draw(img)
@@ -334,7 +334,7 @@ def render_G(slide, index, total, photo_path, brand_handle, accent):
 
 
 # ============================================================ Layout I ====
-def render_I(slide, index, total, photo_path, brand_handle, accent):
+def render_I(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """写真全面＋短文: エディトリアル/雑誌風。マーカーハイライト見出しのみ"""
     img = full_bleed_bg(photo_path, top_alpha=0.18, bottom_alpha=0.78)
     draw = ImageDraw.Draw(img)
@@ -352,7 +352,7 @@ def render_I(slide, index, total, photo_path, brand_handle, accent):
 
 
 # ============================================================ Layout J ====
-def render_J(slide, index, total, photo_path, brand_handle, accent):
+def render_J(slide, index, total, photo_path, brand_handle, accent, **_meta):
     """カード型: 大きめ角丸写真カード(画面の大部分)＋バッジ＋太字見出し"""
     img = Image.new("RGB", (WIDTH, HEIGHT), OFFWHITE)
     draw = ImageDraw.Draw(img)
@@ -392,6 +392,158 @@ def render_J(slide, index, total, photo_path, brand_handle, accent):
     return img
 
 
+# ============================================================ Layout K ====
+NAVY_BADGE = (14, 24, 58)
+BLUE_ACCENT = (28, 58, 128)
+YELLOW = (255, 199, 40)
+BLACK_TEXT = (20, 20, 22)
+
+LIST_STRUCTURE_TYPES = {"ランキング型", "チェックリスト型", "数字型", "比較型"}
+
+
+def _left_light_panel(img: Image.Image, strength=0.94, edge=0.60, fade_width=0.18) -> Image.Image:
+    """写真の左側を白っぽくフェードさせ、太字テキストを乗せても読みやすくする
+    (実際の人気投稿にあった「カーテンの白い壁に文字が乗っている」効果を再現)"""
+    w, h = img.size
+    row = []
+    for x in range(w):
+        t = x / w
+        if t < edge:
+            a = strength
+        else:
+            fade = min(1.0, (t - edge) / fade_width)
+            a = strength * (1 - fade)
+        row.append(int(255 * max(0.0, a)))
+    overlay = Image.new("L", (w, h))
+    overlay.putdata(row * h)
+    white_layer = Image.new("RGB", (w, h), WHITE)
+    return Image.composite(white_layer, img.convert("RGB"), overlay)
+
+
+def _speech_bubble(draw, text, x, y, font_size=32):
+    tag_font = _f(FONT_BLACK, font_size)
+    bbox = draw.textbbox((0, 0), text, font=tag_font)
+    w = bbox[2] - bbox[0]
+    pad_x, pad_y = 26, 16
+    box = (x, y, x + w + pad_x * 2, y + font_size + pad_y * 2)
+    draw.rounded_rectangle(box, radius=14, fill=NAVY_BADGE)
+    draw.text((x + pad_x, y + pad_y - 4), text, font=tag_font, fill=WHITE)
+
+    # 右上に黄色いスパークル(注目線)を3本添える
+    sx, sy = box[2] + 14, box[1] - 4
+    for i, (dx, dy, length) in enumerate([(0, 10, 26), (12, -4, 22), (16, 16, 24)]):
+        draw.line((sx + dx, sy + dy, sx + dx + length * 0.5, sy + dy - length), fill=YELLOW, width=6)
+    return box[3] - box[1]
+
+
+def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_height, max_width):
+    """headingを1文字ずつ描画し、emphasis部分だけ色を変える(強調語がなければ全て黒字)"""
+    lines = wrap_text(draw, heading, font_obj, max_width)
+    emp_start = heading.find(emphasis) if emphasis else -1
+    emp_end = emp_start + len(emphasis) if emp_start >= 0 else -1
+
+    idx = 0
+    cy = y
+    for line in lines:
+        cx = x
+        for ch in line:
+            color = BLUE_ACCENT if emp_start <= idx < emp_end else BLACK_TEXT
+            draw.text((cx, cy), ch, font=font_obj, fill=color)
+            bbox = draw.textbbox((0, 0), ch, font=font_obj)
+            cx += bbox[2] - bbox[0]
+            idx += 1
+        cy += line_height
+    return lines, cy
+
+
+def _bullet_badge(draw, text, x, y, max_width):
+    """チェックアイコン付きの紺色バッジ(実際の人気投稿にあった「知らないと損！」的な一言用)"""
+    badge_font = _f(FONT_BOLD, 30)
+    bbox = draw.textbbox((0, 0), text, font=badge_font)
+    text_w = min(bbox[2] - bbox[0], max_width - 90)
+    pad_x, pad_y, icon_gap = 22, 14, 46
+    box_h = 30 + pad_y * 2
+    box = (x, y, x + icon_gap + text_w + pad_x * 2, y + box_h)
+    draw.rounded_rectangle(box, radius=box_h // 2, fill=NAVY_BADGE)
+    # チェックアイコン(黄色い丸+黒いチェック)
+    icon_cx, icon_cy = x + pad_x + 14, y + box_h / 2
+    draw.ellipse((icon_cx - 14, icon_cy - 14, icon_cx + 14, icon_cy + 14), fill=YELLOW)
+    draw.line((icon_cx - 6, icon_cy, icon_cx - 1, icon_cy + 6), fill=NAVY_BADGE, width=4)
+    draw.line((icon_cx - 1, icon_cy + 6, icon_cx + 8, icon_cy - 7), fill=NAVY_BADGE, width=4)
+    draw.text((x + pad_x + icon_gap, y + pad_y - 2), text, font=badge_font, fill=WHITE)
+    return box[3] - box[1]
+
+
+def render_K(slide, index, total, photo_path, brand_handle, accent, structure_type=None, total_items=None, **_meta):
+    """吹き出しタグ＋黒字/ネイビー強調見出し＋チェックバッジ。
+    実際にleap_connectで反応が良かった過去投稿(人が作成)のデザインを再現したメインレイアウト。"""
+    photo = _load_photo(photo_path)
+    if photo:
+        base = cover_resize_crop(photo, WIDTH, HEIGHT)
+        img = _left_light_panel(base)
+    else:
+        img = Image.new("RGB", (WIDTH, HEIGHT), OFFWHITE)
+    draw = ImageDraw.Draw(img)
+
+    text_max_w = int(WIDTH * 0.66) - MARGIN
+
+    # 吹き出しタグ
+    if index == 0:
+        tag_text = f"{slide.get('_category', 'オーナー')}オーナー必見！"
+    else:
+        tag_text = ROLE_LABELS.get(slide.get("role"), "POINT")
+    y = 64
+    tag_h = _speech_bubble(draw, tag_text, MARGIN, y)
+    y += tag_h + 34
+
+    # 見出し(強調語は色を変える)
+    max_size, min_size = (58, 38) if index == 0 else (50, 34)
+    h_font = None
+    for size in range(max_size, min_size - 1, -2):
+        candidate = _f(FONT_BLACK, size)
+        lines = wrap_text(draw, slide["heading"], candidate, text_max_w)
+        if len(lines) <= 5:
+            h_font = candidate
+            break
+    if h_font is None:
+        h_font = _f(FONT_BLACK, min_size)
+    line_h = int(h_font.size * 1.28)
+    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, line_h, text_max_w)
+
+    # 1枚目かつリスト系の構成タイプなら「4選」のような大きな数字を添える
+    if index == 0 and total_items and structure_type in LIST_STRUCTURE_TYPES:
+        y += 12
+        num_font = _f(FONT_BLACK, 130)
+        suffix_font = _f(FONT_BLACK, 60)
+        num_text = str(total_items)
+        draw.text((MARGIN, y), num_text, font=num_font, fill=BLUE_ACCENT)
+        nbbox = draw.textbbox((MARGIN, y), num_text, font=num_font)
+        draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
+        y += 150
+
+    # 本文
+    if slide.get("body"):
+        y += 22
+        b_font, b_lines = fit_wrapped_text(draw, slide["body"], FONT_BOLD, text_max_w, 34, 26, 5)
+        for line in b_lines:
+            draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
+            y += int(b_font.size * 1.6)
+
+    # 下部のチェックバッジ(0〜2個)
+    bullets = slide.get("bullets") or []
+    if bullets:
+        # バッジの合計高さを見積もって、下端(フッター上)から積み上げる
+        gap = 18
+        est_h = 62
+        by = HEIGHT - FOOTER_H - 40 - (est_h * len(bullets) + gap * (len(bullets) - 1))
+        for b in bullets:
+            h = _bullet_badge(draw, b, MARGIN, by, WIDTH - MARGIN * 2)
+            by += h + gap
+
+    _footer_bar(img, index, total, brand_handle, accent)
+    return img
+
+
 LAYOUT_RENDERERS = {
     "A": render_A,
     "C": render_C,
@@ -399,12 +551,26 @@ LAYOUT_RENDERERS = {
     "G": render_G,
     "I": render_I,
     "J": render_J,
+    "K": render_K,
 }
 
 
-def render_slide(layout_type: str, slide: dict, index: int, total: int, photo_path: str | None, brand_handle: str, accent_seed: int = 0) -> Image.Image:
+def render_slide(
+    layout_type: str,
+    slide: dict,
+    index: int,
+    total: int,
+    photo_path: str | None,
+    brand_handle: str,
+    accent_seed: int = 0,
+    structure_type: str | None = None,
+    total_items: int | None = None,
+    category: str | None = None,
+) -> Image.Image:
     renderer = LAYOUT_RENDERERS.get(layout_type)
     if renderer is None:
         raise ValueError(f"未実装のレイアウトです: {layout_type}")
     accent = pick_accent(accent_seed)
-    return renderer(slide, index, total, photo_path, brand_handle, accent)
+    if category:
+        slide = {**slide, "_category": category}
+    return renderer(slide, index, total, photo_path, brand_handle, accent, structure_type=structure_type, total_items=total_items)

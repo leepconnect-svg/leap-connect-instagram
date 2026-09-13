@@ -57,6 +57,15 @@ USER_PROMPT_TEMPLATE = """次のテーマで台本を作成してください。
   オートロック, 修繕作業, 清掃, 内見風景, 空室, レンタルサロン風内装, SOHO/オフィス, 撮影スタジオ 等から
   テーマに合うものを選ぶ)
 
+各スライドにはさらに以下の2つも付けてください:
+・emphasis: heading内の一部分をそのまま抜き出した文字列(色を変えて強調表示するために使う)。
+  headingの中に実際に含まれる連続した文字列でなければならない(存在しない語は不可)。
+  強調するほどの語がなければ空文字("")でよい
+・bullets: 見た瞬間に読める短いテキスト(8〜14字程度)を0〜2個の配列で。
+  「知らないと損するかも！」のような、続きが気になる一言。
+  1枚目(hook)と最後(summary_cta)には1〜2個入れることを推奨。
+  中間スライドでは無理に入れず空配列([])でよい
+
 法令・管理規約・用途変更等に関わる内容を含む場合は、
 「物件・地域・契約条件によって異なります」等の注意書きをどこかのスライドかキャプションに入れてください。
 
@@ -65,12 +74,12 @@ USER_PROMPT_TEMPLATE = """次のテーマで台本を作成してください。
 {{
   "title": "1枚目に表示するタイトル(20字前後)",
   "slides": [
-    {{"role": "hook", "heading": "1枚目の見出し", "body": "1枚目の補足文(あれば、なければ空文字)", "image_prompt": "..."}},
-    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "..."}},
-    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "..."}},
-    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "..."}},
-    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "..."}},
-    {{"role": "summary_cta", "heading": "まとめの見出し", "body": "CTA文", "image_prompt": "..."}}
+    {{"role": "hook", "heading": "1枚目の見出し", "body": "1枚目の補足文(あれば、なければ空文字)", "image_prompt": "...", "emphasis": "...", "bullets": ["...", "..."]}},
+    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "...", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "summary_cta", "heading": "まとめの見出し", "body": "CTA文", "image_prompt": "...", "emphasis": "...", "bullets": ["...", "..."]}}
   ],
   "caption": "本文キャプション(200〜400字、絵文字は控えめに)",
   "hashtags": ["#...", "... 10〜15個"],
@@ -94,8 +103,10 @@ _SLIDE_SCHEMA = {
         "heading": {"type": "string"},
         "body": {"type": "string"},
         "image_prompt": {"type": "string"},
+        "emphasis": {"type": "string"},
+        "bullets": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
     },
-    "required": ["role", "heading", "body", "image_prompt"],
+    "required": ["role", "heading", "body", "image_prompt", "emphasis", "bullets"],
 }
 
 # 必須キーの欠落(例: hashtagsが無い等)を防ぐため、明示的なJSON Schemaを渡す。
@@ -117,18 +128,19 @@ SCRIPT_TOOL_SCHEMA = {
 }
 
 
+# Kは実績のある過去投稿を再現したレイアウトなので、どの構成タイプでも最優先候補にする
 LAYOUT_AFFINITY = {
-    "チェックリスト型": ["C", "J", "A"],
-    "ランキング型": ["G", "A", "J"],
-    "数字型": ["G", "A"],
-    "問題→原因→対策型": ["E", "A", "J"],
-    "Before/After型": ["E", "A"],
-    "比較型": ["J", "E"],
-    "誤解→正解型": ["E", "J"],
-    "Q&A型": ["J", "A"],
-    "診断型": ["C", "J"],
-    "ストーリー型": ["I", "A"],
-    "一般論としてのケース型": ["I", "A", "J"],
+    "チェックリスト型": ["K", "C", "J", "A"],
+    "ランキング型": ["K", "G", "A", "J"],
+    "数字型": ["K", "G", "A"],
+    "問題→原因→対策型": ["K", "E", "A", "J"],
+    "Before/After型": ["K", "E", "A"],
+    "比較型": ["K", "J", "E"],
+    "誤解→正解型": ["K", "E", "J"],
+    "Q&A型": ["K", "J", "A"],
+    "診断型": ["K", "C", "J"],
+    "ストーリー型": ["K", "I", "A"],
+    "一般論としてのケース型": ["K", "I", "A", "J"],
 }
 
 

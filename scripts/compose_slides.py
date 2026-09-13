@@ -19,11 +19,17 @@ def compose_slides(script: dict, raw_photo_paths: list[str], out_dir: str, brand
     # 投稿(タイトル)ごとにアクセントカラーが変わるようにする(6枚内では統一)
     title = script.get("title", "")
     accent_seed = sum(ord(c) for c in title) if title else 0
+    structure_type = script.get("structure_type")
+    category = script.get("category")
+    total_items = total - 2  # hook・summary_cta を除いたコンテンツ項目数
 
     paths = []
     for i, slide in enumerate(slides):
         photo_path = raw_photo_paths[i] if i < len(raw_photo_paths) else None
-        img = render_slide(layout_type, slide, i, total, photo_path, brand_handle, accent_seed=accent_seed)
+        img = render_slide(
+            layout_type, slide, i, total, photo_path, brand_handle,
+            accent_seed=accent_seed, structure_type=structure_type, total_items=total_items, category=category,
+        )
         path = os.path.join(out_dir, f"slide_{i:02d}.png")
         img.save(path)
         paths.append(path)
