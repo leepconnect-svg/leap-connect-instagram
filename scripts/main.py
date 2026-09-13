@@ -175,21 +175,25 @@ def main():
     caption = build_caption(script)
     db.update_post(post_id, status="ready")
 
-    if dry_run:
-        print("[DRY_RUN] Instagramへの投稿はスキップしました")
-        print("--- caption ---")
-        print(caption)
-        print(f"--- 画像 ({len(image_paths)}枚) ---")
-        for p in image_paths:
-            print(f"  {p}")
-        return
-
-    print("[7/7] Instagramへ投稿中...")
+    # DRY_RUNでも画像はリポジトリにcommit&pushする(投稿はしないが、
+    # 出来上がりをGitHub上で確認できるようにするため)
+    print("[7/7] 画像をリポジトリに公開中(GitHub + jsdelivr)...")
     try:
-        print("  画像をリポジトリに公開中(GitHub + jsdelivr)...")
         image_urls = publish_images_to_github(image_paths, repo_root=ROOT)
         for u in image_urls:
             print(f"    {u}")
+    except Exception:
+        fail(post_id, f"画像の公開でエラー:\n{traceback.format_exc()}")
+        sys.exit(1)
+
+    if dry_run:
+        print("[DRY_RUN] Instagramへの投稿はスキップしました(画像は上記URLで確認できます)")
+        print("--- caption ---")
+        print(caption)
+        return
+
+    print("  Instagramへ投稿中...")
+    try:
         time.sleep(3)  # CDNが新規ファイルを認識するまでの安全マージン
         media_id = post_carousel(env["IG_USER_ID"], env["IG_ACCESS_TOKEN"], image_urls, caption)
         db.update_post(post_id, status="posted", ig_media_id=media_id, posted_at=db.now_iso())
