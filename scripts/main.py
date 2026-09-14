@@ -91,7 +91,21 @@ def main():
     work_dir = os.path.join(ROOT, "data", "generated", timestamp)
 
     print("[1/7] テーマ企画中...")
-    topic = generate_and_select_topic(env["ANTHROPIC_API_KEY"])
+    force_theme = os.environ.get("FORCE_THEME")
+    if force_theme == "vacancy_reuse":
+        # 動作確認用: 「空室の時間貸し/多用途活用」テーマを強制的に選ぶ(通常のランダム選定を迂回)
+        print("  [FORCE_THEME=vacancy_reuse] テーマ選定をスキップし、空室活用3提案型を強制指定")
+        topic = {
+            "theme": "空室を活かす多用途活用術",
+            "sub_theme": "時間貸しでの収益化",
+            "category": "空室",
+            "angle": "空室の別用途活用(時間貸し/多用途活用)",
+            "structure_type": "チェックリスト型",
+            "hook_idea": "家賃以外の使い道がある",
+            "_score": 0.0,
+        }
+    else:
+        topic = generate_and_select_topic(env["ANTHROPIC_API_KEY"])
     print(f"  テーマ: {topic['theme']} / カテゴリ: {topic.get('category')} / スコア: {topic.get('_score'):.1f}")
 
     print("[2/7] 6枚台本を生成中...")
