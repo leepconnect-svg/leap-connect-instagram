@@ -10,8 +10,16 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ai_clients import claude_json
-from brand_context import BRAND_CONTEXT, CTA_EXAMPLES, IMPLEMENTED_LAYOUTS, LAYOUT_DESCRIPTIONS
+from brand_context import BRAND_CONTEXT, CTA_EXAMPLES, IMPLEMENTED_LAYOUTS, LAYOUT_DESCRIPTIONS, SPACE_USE_CASES
 from db import db
+
+_VACANCY_KEYWORDS = ("別用途", "多用途", "時間貸し", "スペースマーケット") + tuple(SPACE_USE_CASES)
+
+
+def is_vacancy_reuse_topic(topic: dict) -> bool:
+    """テーマが「空室の時間貸し/多用途活用」系かどうかを判定する"""
+    text = " ".join([topic.get("theme", ""), topic.get("sub_theme", ""), topic.get("angle", "")])
+    return any(kw in text for kw in _VACANCY_KEYWORDS)
 
 SYSTEM_PROMPT = BRAND_CONTEXT + """
 
@@ -90,6 +98,63 @@ USER_PROMPT_TEMPLATE = """次のテーマで台本を作成してください。
 slides配列の要素数は必ずちょうど6にしてください(5でも7でも不可)。
 """
 
+VACANCY_REUSE_PROMPT_TEMPLATE = """次のテーマで「空室の時間貸し/多用途活用」専用の台本を作成してください。
+このテーマは決まった6枚構成を使います(他のテーマの構成とは違うので注意)。
+
+テーマ: {theme}
+サブテーマ: {sub_theme}
+カテゴリ: {category}
+用途例のローテーション候補(3つ選ぶ。過去投稿と同じ組み合わせは避ける): {space_use_cases}
+
+【6枚の決まった構成】
+1. hook: 「(用途1)を活用できる(用途1)活用法3選」のような表紙。フックとして強い言い切り
+2. problem: 「なぜ今、空室の多用途活用が注目されるのか」等、自分ごと化させる問題提起
+3. method_1: 提案する用途1つ目。見出しに用途名を入れる。本文で「どんな物件に向いているか」
+   「メリット」を簡潔に(40字程度)
+4. method_2: 用途2つ目。method_1と同じ構成、内容は別の用途
+5. method_3: 用途3つ目。method_1と同じ構成、内容はさらに別の用途
+6. summary_cta: 「空室のまま眠らせていませんか？」のようなまとめ。bulletsに今回扱った3つの
+   用途を短く列挙し(例: "賃貸", "レンタルサロン", "その他の活用")、
+   本文は「物件に合わせた収益化方法を考えます」のような相談誘導、CTAは相談を促す文言
+
+各スライドのimage_promptの条件:
+・実在する特定物件を想起させない一般的な室内写真であること
+・"no text, no letters, no watermark" を必ず含める
+・清潔感・自然光・高級感のある日本のマンションを想定した室内(過剰な高級ホテル風は禁止)
+・method_1〜3では、その用途が一目で伝わる家具/設備を配置する
+  (例: レンタルサロン→施術ベッド・鏡・観葉植物、レンタルオフィス→デスク・チェア・PC、
+  撮影スタジオ→照明・背景、貸し会議室→テーブル・チェア・モニター、
+  プライベートジム→トレーニング機器、ポップアップストア→ディスプレイ棚)
+
+各スライドにはさらに以下の2つも付けてください:
+・emphasis: heading内の一部分をそのまま抜き出した文字列(色を変えて強調表示するために使う、
+  用途名や数字など)。headingに実際に含まれる文字列でなければならない。無ければ空文字
+・bullets: 短いテキスト(8〜14字程度)の配列。hookには2個、summary_ctaには今回扱った3用途を
+  短縮して3個、中間スライド(problem/method_1〜3)は空配列([])でよい
+
+必ず「管理規約・賃貸借契約・用途地域・建築/消防関係等の確認が必要な場合がある」旨を
+どこかのスライドかキャプションに入れてください(どんな物件でも使えると断定しない)。
+
+出力は以下のJSON形式のみ。
+
+{{
+  "title": "1枚目に表示するタイトル(20字前後)",
+  "slides": [
+    {{"role": "hook", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": ["...", "..."]}},
+    {{"role": "problem", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "method_1", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "method_2", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "method_3", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": []}},
+    {{"role": "summary_cta", "heading": "...", "body": "...", "image_prompt": "...", "emphasis": "...", "bullets": ["...", "...", "..."]}}
+  ],
+  "caption": "本文キャプション(200〜400字、絵文字は控えめに)",
+  "hashtags": ["#...", "... 10〜15個"],
+  "cta_text": "6枚目に使ったCTA文と同じもの"
+}}
+
+slides配列の要素数は必ずちょうど6にしてください。role名は上記の通り固定です。
+"""
+
 _RETRY_NOTE = """
 
 【重要・厳守】前回の出力はslidesが{actual}件でした。ちょうど6件にしてください。
@@ -105,7 +170,7 @@ _SLIDE_SCHEMA = {
         "body": {"type": "string"},
         "image_prompt": {"type": "string"},
         "emphasis": {"type": "string"},
-        "bullets": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+        "bullets": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
     },
     "required": ["role", "heading", "body", "image_prompt", "emphasis", "bullets"],
 }
@@ -165,14 +230,24 @@ IMAGE_PROMPT_SUFFIX = (
 
 
 def generate_script(anthropic_api_key: str, topic: dict) -> dict:
-    prompt = USER_PROMPT_TEMPLATE.format(
-        theme=topic.get("theme", ""),
-        sub_theme=topic.get("sub_theme", ""),
-        category=topic.get("category", ""),
-        angle=topic.get("angle", ""),
-        structure_type=topic.get("structure_type", ""),
-        hook_idea=topic.get("hook_idea", ""),
-    )
+    vacancy_reuse = is_vacancy_reuse_topic(topic)
+
+    if vacancy_reuse:
+        prompt = VACANCY_REUSE_PROMPT_TEMPLATE.format(
+            theme=topic.get("theme", ""),
+            sub_theme=topic.get("sub_theme", ""),
+            category=topic.get("category", ""),
+            space_use_cases="、".join(SPACE_USE_CASES),
+        )
+    else:
+        prompt = USER_PROMPT_TEMPLATE.format(
+            theme=topic.get("theme", ""),
+            sub_theme=topic.get("sub_theme", ""),
+            category=topic.get("category", ""),
+            angle=topic.get("angle", ""),
+            structure_type=topic.get("structure_type", ""),
+            hook_idea=topic.get("hook_idea", ""),
+        )
     system = SYSTEM_PROMPT.format(cta_examples="\n  ".join(f"- {c}" for c in CTA_EXAMPLES))
 
     result = claude_json(anthropic_api_key, system, prompt, max_tokens=4000, tool_schema=SCRIPT_TOOL_SCHEMA)
@@ -196,8 +271,9 @@ def generate_script(anthropic_api_key: str, topic: dict) -> dict:
     for slide in slides:
         slide["image_prompt"] = slide.get("image_prompt", "").strip() + IMAGE_PROMPT_SUFFIX
 
-    result["layout_type"] = choose_layout(topic.get("structure_type", ""))
-    result["structure_type"] = topic.get("structure_type", "")
+    # 空室多用途活用テーマは、その専用に作ったレイアウトKを常に使う
+    result["layout_type"] = "K" if vacancy_reuse else choose_layout(topic.get("structure_type", ""))
+    result["structure_type"] = "空室活用3提案型" if vacancy_reuse else topic.get("structure_type", "")
     result["category"] = topic.get("category", "")
     result["theme"] = topic.get("theme", "")
     result["sub_theme"] = topic.get("sub_theme", "")

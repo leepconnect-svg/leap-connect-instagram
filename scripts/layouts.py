@@ -49,11 +49,19 @@ ACCENT_PALETTE = [
 ROLE_LABELS = {
     "hook": "導入",
     "why_problem": "問題提起",
+    "problem": "問題提起",
     "cause": "原因",
     "risk": "リスク",
     "solution": "対策",
+    "method_1": "活用アイデア",
+    "method_2": "活用アイデア",
+    "method_3": "活用アイデア",
     "summary_cta": "まとめ",
 }
+
+# 「空室の時間貸し/多用途活用」専用構成(generate_script.pyのVACANCY_REUSE_PROMPT_TEMPLATE)
+# のmethod_1〜3スライドに表示する大きな番号
+METHOD_NUMBER_MAP = {"method_1": "01", "method_2": "02", "method_3": "03"}
 
 
 def _f(path, size):
@@ -495,6 +503,14 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     y = 64
     tag_h = _speech_bubble(draw, tag_text, MARGIN, y)
     y += tag_h + 34
+
+    # method_1〜3スライドは、見出しの前に大きな番号(01/02/03)を表示する
+    method_num = METHOD_NUMBER_MAP.get(slide.get("role"))
+    if method_num:
+        num_font = _f(FONT_BLACK, 110)
+        draw.text((MARGIN, y), method_num, font=num_font, fill=BLUE_ACCENT)
+        nbbox = draw.textbbox((MARGIN, y), method_num, font=num_font)
+        y = nbbox[3] + 16
 
     # 見出し(強調語は色を変える)
     max_size, min_size = (58, 38) if index == 0 else (50, 34)
