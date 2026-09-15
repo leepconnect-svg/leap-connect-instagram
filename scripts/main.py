@@ -32,7 +32,7 @@ from publish_images import publish_images_to_github
 from post_instagram import post_carousel
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-QUALITY_THRESHOLD = int(os.environ.get("QUALITY_THRESHOLD", "80"))
+QUALITY_THRESHOLD = int(os.environ.get("QUALITY_THRESHOLD", "72"))
 MAX_REVISIONS = 2
 
 

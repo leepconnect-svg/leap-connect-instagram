@@ -11,9 +11,9 @@ on:
         required: false
         default: "0"
       quality_threshold:
-        description: "品質審査の合格ライン(0〜100)。通常は80のままでOK。動作確認用に一時的に下げたい場合のみ変更"
+        description: "品質審査の合格ライン(0〜100)。過去の実績(60〜78点が中心)を踏まえ72に設定済み。動作確認用に一時的に変更したい場合のみ入力"
         required: false
-        default: "80"
+        default: "72"
       force_theme:
         description: "動作確認用: 'vacancy_reuse'(空室活用3提案型) or 'minpaku_reuse'(民泊からの転用) でテーマ選定を迂回して強制テストする。通常は空欄"
         required: false
@@ -45,7 +45,7 @@ jobs:
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
           BRAND_HANDLE: ${{ vars.BRAND_HANDLE }}
           DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
-          QUALITY_THRESHOLD: ${{ github.event.inputs.quality_threshold || '80' }}
+          QUALITY_THRESHOLD: ${{ github.event.inputs.quality_threshold || '72' }}
           FORCE_THEME: ${{ github.event.inputs.force_theme || '' }}
         run: python scripts/main.py
 
