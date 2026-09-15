@@ -13,7 +13,7 @@ v2ではこれに合わせ、全レイアウトで写真をフルブリード(�
 """
 import os
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from utils_image import cover_resize_crop
 from utils_text import blend, fit_wrapped_text, font, wrap_text
@@ -428,6 +428,44 @@ def _left_light_panel(img: Image.Image, strength=0.94, edge=0.60, fade_width=0.1
     return Image.composite(white_layer, img.convert("RGB"), overlay)
 
 
+def _light_panel_zone(img: Image.Image, y_top: int, y_bottom: int, strength=0.94, edge=0.60, fade_width=0.18, v_fade=110) -> Image.Image:
+    """写真の左側を白っぽくフェードさせるが、縦方向は[y_top, y_bottom]付近のみに限定する。
+    テキスト量が少ないスライドでも、余った部分を「白い空白」にせず実際の写真をそのまま見せるための処理
+    (以前は全高にパネルをかけていたため、文章が短いスライドで下部が間延びした白い余白に見えていた)"""
+    w, h = img.size
+
+    # 横方向のアルファ(_left_light_panelと同じロジック)
+    row = []
+    for x in range(w):
+        t = x / w
+        if t < edge:
+            a = strength
+        else:
+            fade = min(1.0, (t - edge) / fade_width)
+            a = strength * (1 - fade)
+        row.append(int(255 * max(0.0, a)))
+    overlay_h = Image.new("L", (w, h))
+    overlay_h.putdata(row * h)
+
+    # 縦方向のアルファ: y_top〜y_bottomの範囲は1.0、その外側はv_fade pxかけて0(写真そのまま)へフェード
+    col = []
+    for y in range(h):
+        if y_top <= y <= y_bottom:
+            a = 1.0
+        elif y < y_top:
+            a = max(0.0, 1.0 - (y_top - y) / v_fade)
+        else:
+            a = max(0.0, 1.0 - (y - y_bottom) / v_fade)
+        col.append(int(255 * a))
+    overlay_v_col = Image.new("L", (1, h))
+    overlay_v_col.putdata(col)
+    overlay_v = overlay_v_col.resize((w, h), Image.NEAREST)
+
+    overlay = ImageChops.multiply(overlay_h, overlay_v)
+    white_layer = Image.new("RGB", (w, h), WHITE)
+    return Image.composite(white_layer, img.convert("RGB"), overlay)
+
+
 def _speech_bubble(draw, text, x, y, font_size=32):
     tag_font = _f(FONT_BLACK, font_size)
     bbox = draw.textbbox((0, 0), text, font=tag_font)
@@ -486,87 +524,132 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     """吹き出しタグ＋黒字/ネイビー強調見出し＋チェックバッジ。
     実際にleap_connectで反応が良かった過去投稿(人が作成)のデザインを再現したメインレイアウト。"""
     photo = _load_photo(photo_path)
-    if photo:
+    has_photo = photo is not None
+    if has_photo:
         base = cover_resize_crop(photo, WIDTH, HEIGHT)
-        img = _left_light_panel(base)
     else:
-        img = Image.new("RGB", (WIDTH, HEIGHT), OFFWHITE)
-    draw = ImageDraw.Draw(img)
+        base = Image.new("RGB", (WIDTH, HEIGHT), OFFWHITE)
+    # 測定専用のDraw(textbbox/textlength/wrap_textはピクセルを描画しないので、
+    # 白パネルを重ねる前のbaseに対して安全に呼び出せる)
+    meas_draw = ImageDraw.Draw(base)
 
     text_max_w = int(WIDTH * 0.66) - MARGIN
 
-    # 吹き出しタグ
+    # 吹き出しタグ(常に上部の同じ位置に固定。デザインの一貫性のため)
     if index == 0:
         tag_text = f"{slide.get('_category', 'オーナー')}オーナー必見！"
     else:
         tag_text = ROLE_LABELS.get(slide.get("role"), "POINT")
-    y = 64
-    tag_h = _speech_bubble(draw, tag_text, MARGIN, y)
-    y += tag_h + 34
+    tag_font_size = 32
+    tag_h = tag_font_size + 32  # _speech_bubbleの内部計算(pad_y=16)と一致させた固定値
+    tag_y = 64
+    content_top = tag_y + tag_h + 34
 
-    # method_1〜3スライドは、見出しの前に大きな番号(01/02/03)を表示する
-    method_num = METHOD_NUMBER_MAP.get(slide.get("role"))
-    if method_num:
-        num_font = _f(FONT_BLACK, 110)
-        draw.text((MARGIN, y), method_num, font=num_font, fill=BLUE_ACCENT)
-        nbbox = draw.textbbox((MARGIN, y), method_num, font=num_font)
-        y = nbbox[3] + 16
-
-    # 見出し(強調語は色を変える)
-    max_size, min_size = (58, 38) if index == 0 else (50, 34)
-    h_font = None
-    for size in range(max_size, min_size - 1, -2):
-        candidate = _f(FONT_BLACK, size)
-        lines = wrap_text(draw, slide["heading"], candidate, text_max_w)
-        if len(lines) <= 5:
-            h_font = candidate
-            break
-    if h_font is None:
-        h_font = _f(FONT_BLACK, min_size)
-    line_h = int(h_font.size * 1.28)
-    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, line_h, text_max_w)
-
-    # 1枚目かつリスト系の構成タイプなら「4選」のような大きな数字を添える
-    if index == 0 and total_items and structure_type in LIST_STRUCTURE_TYPES:
-        y += 12
-        num_font = _f(FONT_BLACK, 130)
-        suffix_font = _f(FONT_BLACK, 60)
-        num_text = str(total_items)
-        draw.text((MARGIN, y), num_text, font=num_font, fill=BLUE_ACCENT)
-        nbbox = draw.textbbox((MARGIN, y), num_text, font=num_font)
-        draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
-        y += 150
-
-    # 下部のチェックバッジ(0〜2個)の占有領域を先に計算しておく
+    # 下部のチェックバッジ(0〜3個)の占有領域を先に計算しておく
     # (本文の描画量に関わらず、バッジと重ならないようにするため)
     bullets = slide.get("bullets") or []
     gap, est_h = 18, 62
     bullets_zone_h = (est_h * len(bullets) + gap * (len(bullets) - 1)) if bullets else 0
     bullets_top = HEIGHT - FOOTER_H - 40 - bullets_zone_h
+    content_bottom = bullets_top - 24
+    available_h = max(80, content_bottom - content_top)
 
-    # 本文(バッジ領域と重ならない高さに収まるようフォントサイズ/行数を調整する)
-    if slide.get("body"):
-        y += 22
-        available_h = bullets_top - 24 - y  # バッジとの間に最低限の余白を確保
-        if available_h > 40:
-            b_font, b_lines, b_line_h = None, [], 0
-            for size in range(34, 23, -2):
-                candidate = _f(FONT_BOLD, size)
-                lines = wrap_text(draw, slide["body"], candidate, text_max_w)
-                line_h = int(size * 1.6)
-                if len(lines) <= 5 and line_h * len(lines) <= available_h:
-                    b_font, b_lines, b_line_h = candidate, lines, line_h
-                    break
-                if b_font is None:
-                    b_font, b_lines, b_line_h = candidate, lines, line_h
-            max_fit_lines = max(1, int(available_h // b_line_h))
-            if len(b_lines) > max_fit_lines:
-                b_lines = b_lines[:max_fit_lines]
-                if b_lines:
-                    b_lines[-1] = (b_lines[-1][:-1] + "…") if len(b_lines[-1]) > 1 else "…"
-            for line in b_lines:
-                draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
-                y += b_line_h
+    # 見出しフォント(5行以内に収まる最大サイズを採用)
+    max_size, min_size = (58, 38) if index == 0 else (50, 34)
+    h_font = None
+    for size in range(max_size, min_size - 1, -2):
+        candidate = _f(FONT_BLACK, size)
+        lines = wrap_text(meas_draw, slide["heading"], candidate, text_max_w)
+        if len(lines) <= 5:
+            h_font = candidate
+            break
+    if h_font is None:
+        h_font = _f(FONT_BLACK, min_size)
+    h_line_h = int(h_font.size * 1.28)
+    heading_lines = wrap_text(meas_draw, slide["heading"], h_font, text_max_w)
+    heading_block_h = h_line_h * len(heading_lines)
+
+    # method_1〜3スライドは、見出しの直前に大きな番号(01/02/03)を表示する
+    method_num = METHOD_NUMBER_MAP.get(slide.get("role"))
+    GAP_NUM = 16
+    num_font = _f(FONT_BLACK, 110) if method_num else None
+    num_block_h = (meas_draw.textbbox((0, 0), method_num, font=num_font)[3] + GAP_NUM) if method_num else 0
+
+    # 1枚目かつリスト系の構成タイプなら、見出しの直後に「4選」のような大きな数字を添える
+    show_lead_number = bool(index == 0 and total_items and structure_type in LIST_STRUCTURE_TYPES)
+    GAP_LEAD = 12
+    lead_block_h = (GAP_LEAD + 150) if show_lead_number else 0
+
+    # 本文: 使える余白をできるだけ活かす大きめのフォントを選ぶ(小さい文字で下に空白を残さない)
+    body_text = slide.get("body") or ""
+    GAP_BODY = 22
+    fixed_h = num_block_h + heading_block_h + lead_block_h + (GAP_BODY if body_text else 0)
+    body_budget = max(0, available_h - fixed_h)
+
+    b_font = b_lines = None
+    b_line_h = 0
+    body_block_h = 0
+    if body_text:
+        for size in range(36, 21, -2):
+            candidate = _f(FONT_BOLD, size)
+            lines = wrap_text(meas_draw, body_text, candidate, text_max_w)
+            line_h = int(size * 1.6)
+            block_h = line_h * len(lines)
+            if len(lines) <= 5 and block_h <= body_budget:
+                b_font, b_lines, b_line_h, body_block_h = candidate, lines, line_h, block_h
+                break
+        if b_font is None:
+            # どのサイズでも収まらない場合は最小サイズを採用し、行を切り詰める
+            size = 22
+            b_font = _f(FONT_BOLD, size)
+            b_line_h = int(size * 1.6)
+            lines = wrap_text(meas_draw, body_text, b_font, text_max_w)
+            max_fit_lines = max(1, int(body_budget // b_line_h)) if body_budget > 0 else 1
+            b_lines = lines[:max_fit_lines]
+            if len(lines) > max_fit_lines and b_lines:
+                b_lines[-1] = (b_lines[-1][:-1] + "…") if len(b_lines[-1]) > 1 else "…"
+            body_block_h = b_line_h * len(b_lines)
+
+    total_block_h = fixed_h + body_block_h
+    block_bottom = content_top + total_block_h
+
+    # --- 写真を活かすため、白パネルは「タグ＋テキストがある範囲」だけに絞る ---
+    # (文章量が少ないスライドでも、余った部分は空白にせず実際の写真をそのまま見せる。
+    #  以前は写真全高に白パネルをかけていたため、短い文章のスライドで
+    #  上下に間延びした白い空白が目立っていた)
+    if has_photo:
+        panel_top = max(0, tag_y - 24)
+        panel_bottom = min(HEIGHT, block_bottom + 40)
+        img = _light_panel_zone(base, panel_top, panel_bottom)
+    else:
+        img = base
+    draw = ImageDraw.Draw(img)
+
+    # --- ここから実際の描画(測定済みのフォント/行/高さをそのまま使い、二重測定しない) ---
+    _speech_bubble(draw, tag_text, MARGIN, tag_y, font_size=tag_font_size)
+
+    y = content_top
+    if method_num:
+        draw.text((MARGIN, y), method_num, font=num_font, fill=BLUE_ACCENT)
+        y += num_block_h
+
+    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, h_line_h, text_max_w)
+
+    if show_lead_number:
+        y += GAP_LEAD
+        lead_num_font = _f(FONT_BLACK, 130)
+        suffix_font = _f(FONT_BLACK, 60)
+        num_text = str(total_items)
+        draw.text((MARGIN, y), num_text, font=lead_num_font, fill=BLUE_ACCENT)
+        nbbox = draw.textbbox((MARGIN, y), num_text, font=lead_num_font)
+        draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
+        y += 150
+
+    if body_text:
+        y += GAP_BODY
+        for line in b_lines:
+            draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
+            y += b_line_h
 
     if bullets:
         by = bullets_top
