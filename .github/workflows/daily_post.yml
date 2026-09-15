@@ -15,7 +15,7 @@ on:
         required: false
         default: "80"
       force_theme:
-        description: "動作確認用: 'vacancy_reuse' を入れるとテーマ選定を迂回して空室活用3提案型を強制テストする。通常は空欄"
+        description: "動作確認用: 'vacancy_reuse'(空室活用3提案型) or 'minpaku_reuse'(民泊からの転用) でテーマ選定を迂回して強制テストする。通常は空欄"
         required: false
         default: ""
 

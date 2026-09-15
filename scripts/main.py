@@ -104,6 +104,18 @@ def main():
             "hook_idea": "家賃以外の使い道がある",
             "_score": 0.0,
         }
+    elif force_theme == "minpaku_reuse":
+        # 動作確認用: 「民泊規制強化からの転用」テーマを強制的に選ぶ
+        print("  [FORCE_THEME=minpaku_reuse] テーマ選定をスキップし、民泊からの転用を強制指定")
+        topic = {
+            "theme": "民泊をやめた部屋の次の使い道",
+            "sub_theme": "民泊規制強化と時間貸しへの転用",
+            "category": "空室",
+            "angle": "民泊規制強化からの転用(民泊をやめた部屋の次の使い道)",
+            "structure_type": "チェックリスト型",
+            "hook_idea": "民泊の稼働日数、上限に達していませんか",
+            "_score": 0.0,
+        }
     else:
         topic = generate_and_select_topic(env["ANTHROPIC_API_KEY"])
     print(f"  テーマ: {topic['theme']} / カテゴリ: {topic.get('category')} / スコア: {topic.get('_score'):.1f}")
