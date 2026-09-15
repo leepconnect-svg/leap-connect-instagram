@@ -4,6 +4,7 @@ STEP 2: 選定されたテーマから、6枚カルーセルの台本(見出し/
 """
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,10 +24,17 @@ def is_vacancy_reuse_topic(topic: dict) -> bool:
 
 
 def get_recently_used_space_use_cases(limit_posts: int = 8) -> list[str]:
-    """直近の「空室活用3提案型」投稿で実際に使われた用途例(method_1〜3のemphasis)を
-    DBから拾い、プロンプトに渡して重複を避けるためのリストを作る"""
+    """直近の「空室活用3提案型」投稿で実際に使われた用途例をDBから拾い、
+    プロンプトに渡して重複を避けるためのリストを作る。
+
+    method_1〜3のemphasisは「時給目安1,000〜3,000円台」のような価格帯になっている
+    ことが多く用途名そのものではないため、emphasisではなくheading本文から
+    SPACE_USE_CASESの用途名を直接マッチングする(以前はemphasis優先で拾っていたため、
+    実際には重複回避が効いていないケースがあった)。
+    リストに無い独自アイデアだった場合は見出し先頭の用途名らしき部分を代わりに拾う。"""
     recent = db.get_recent_posts(limit=30)
     used = []
+    posts_scanned = 0
     for p in recent:
         if p.get("structure_type") != "空室活用3提案型":
             continue
@@ -35,13 +43,27 @@ def get_recently_used_space_use_cases(limit_posts: int = 8) -> list[str]:
         except (json.JSONDecodeError, TypeError):
             continue
         for slide in slides:
-            if slide.get("role") in ("method_1", "method_2", "method_3"):
-                emphasis = (slide.get("emphasis") or "").strip()
-                heading = (slide.get("heading") or "").strip()
-                label = emphasis or heading
+            if slide.get("role") not in ("method_1", "method_2", "method_3"):
+                continue
+            heading = (slide.get("heading") or "").strip()
+            if not heading:
+                continue
+            matched = [uc for uc in SPACE_USE_CASES if uc in heading]
+            if matched:
+                for uc in matched:
+                    if uc not in used:
+                        used.append(uc)
+            else:
+                # リストに無い独自アイデア: 見出しは「① レンタルスタジオ｜目安...」
+                # 「活用法3: 動画・配信スタジオ」等、AIによって表記ゆれがあるため、
+                # 先頭の番号・「活用法N:」のようなラベルを取り除いてから、
+                # 価格帯等が続く「｜」の前までを用途名として拾う
+                label = re.sub(r"^[①②③\d.\)\s]*(活用法\s*\d+\s*[:：]\s*)?", "", heading)
+                label = re.split(r"[｜|]", label)[0].strip()
                 if label and label not in used:
                     used.append(label)
-        if len(used) >= limit_posts * 3:
+        posts_scanned += 1
+        if posts_scanned >= limit_posts:
             break
     return used
 
