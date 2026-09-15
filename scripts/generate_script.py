@@ -13,13 +13,37 @@ from ai_clients import claude_json
 from brand_context import BRAND_CONTEXT, CTA_EXAMPLES, IMPLEMENTED_LAYOUTS, LAYOUT_DESCRIPTIONS, SPACE_USE_CASES
 from db import db
 
-_VACANCY_KEYWORDS = ("別用途", "多用途", "時間貸し", "スペースマーケット") + tuple(SPACE_USE_CASES)
+_VACANCY_KEYWORDS = ("別用途", "多用途", "時間貸し", "スペースマーケット", "民泊") + tuple(SPACE_USE_CASES)
 
 
 def is_vacancy_reuse_topic(topic: dict) -> bool:
     """テーマが「空室の時間貸し/多用途活用」系かどうかを判定する"""
     text = " ".join([topic.get("theme", ""), topic.get("sub_theme", ""), topic.get("angle", "")])
     return any(kw in text for kw in _VACANCY_KEYWORDS)
+
+
+def get_recently_used_space_use_cases(limit_posts: int = 8) -> list[str]:
+    """直近の「空室活用3提案型」投稿で実際に使われた用途例(method_1〜3のemphasis)を
+    DBから拾い、プロンプトに渡して重複を避けるためのリストを作る"""
+    recent = db.get_recent_posts(limit=30)
+    used = []
+    for p in recent:
+        if p.get("structure_type") != "空室活用3提案型":
+            continue
+        try:
+            slides = json.loads(p.get("slide_texts") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for slide in slides:
+            if slide.get("role") in ("method_1", "method_2", "method_3"):
+                emphasis = (slide.get("emphasis") or "").strip()
+                heading = (slide.get("heading") or "").strip()
+                label = emphasis or heading
+                if label and label not in used:
+                    used.append(label)
+        if len(used) >= limit_posts * 3:
+            break
+    return used
 
 SYSTEM_PROMPT = BRAND_CONTEXT + """
 
@@ -104,7 +128,14 @@ VACANCY_REUSE_PROMPT_TEMPLATE = """次のテーマで「空室の時間貸し/�
 テーマ: {theme}
 サブテーマ: {sub_theme}
 カテゴリ: {category}
-用途例のローテーション候補(3つ選ぶ。過去投稿と同じ組み合わせは避ける): {space_use_cases}
+用途例のローテーション候補: {space_use_cases}
+直近の投稿で既に使った用途例(この中からは選ばないこと): {used_use_cases}
+上記候補のうち「直近で使った」ものを除いた残りから3つ選んでください。
+もし残りが3つ未満しかない場合は、候補リストに無くても、区分マンションの1室で
+実現可能な現実的な新しい用途アイデアを自分で考えて補ってください
+(スペースマーケット等の実在サービスで実際に見られるカテゴリを参考にしてよい。
+例: 動画配信/ライブ配信スペース、宅トレ/ヨガスタジオ、簡易カフェ・間借り営業、
+瞑想/リラクゼームルーム、フリマ/委託販売スペース、学習塾/家庭教師スペース等)。
 
 【6枚の決まった構成】
 1. hook: 「(用途1)を活用できる(用途1)活用法3選」のような表紙。フックとして強い言い切り
@@ -134,6 +165,9 @@ VACANCY_REUSE_PROMPT_TEMPLATE = """次のテーマで「空室の時間貸し/�
 
 必ず「管理規約・賃貸借契約・用途地域・建築/消防関係等の確認が必要な場合がある」旨を
 どこかのスライドかキャプションに入れてください(どんな物件でも使えると断定しない)。
+テーマが「民泊」に関連する場合は、民泊(宿泊を伴う営業)と時間貸しスペース(宿泊を伴わない
+時間単位の貸し出し)とでは適用される法令の整理が異なる旨にも触れ、
+「民泊をやめれば自動的に切り替えられる」といった断定はしないでください。
 
 出力は以下のJSON形式のみ。
 
@@ -238,6 +272,7 @@ def generate_script(anthropic_api_key: str, topic: dict) -> dict:
             sub_theme=topic.get("sub_theme", ""),
             category=topic.get("category", ""),
             space_use_cases="、".join(SPACE_USE_CASES),
+            used_use_cases="、".join(get_recently_used_space_use_cases()) or "(まだ実績なし)",
         )
     else:
         prompt = USER_PROMPT_TEMPLATE.format(
