@@ -72,8 +72,17 @@ def validate_script_and_images(script: dict, image_paths: list[str]) -> list[str
 
 
 def fail(post_id: str, reason: str) -> None:
+    """本物のエラー(バグ・API障害等)。GitHub Actions上でも失敗(赤いX)として扱うべきもの"""
     print(f"[FAIL] {reason}", file=sys.stderr)
     db.update_post(post_id, status="failed", reject_reason=reason)
+
+
+def reject(post_id: str, reason: str) -> None:
+    """意図した安全装置が働いた結果(品質スコア未達等)。バグではないため、
+    GitHub Actions上は成功(緑)のまま終わらせ、失敗通知メールで誤って
+    「システムエラー」だと誤解されないようにする"""
+    print(f"[REJECTED] {reason}")
+    db.update_post(post_id, status="rejected", reject_reason=reason)
 
 
 def main():
@@ -201,8 +210,12 @@ def main():
         sys.exit(1)
 
     if not quality_passed:
-        fail(post_id, f"品質スコアが{QUALITY_THRESHOLD}点未満のため投稿を中止しました(最終{review.get('total')}点、上記URLで内容は確認可能)。issues={review.get('issues')}")
-        sys.exit(1)
+        # これはバグではなく、安全装置(品質ゲート)が意図通り働いた結果。
+        # sys.exit(1)にするとGitHub Actionsが「失敗」として赤いX+失敗通知メールを
+        # 送ってしまい、正常動作にもかかわらず「システムエラー」と誤解されるため
+        # 正常終了(exit 0)にする
+        reject(post_id, f"品質スコアが{QUALITY_THRESHOLD}点未満のため投稿を中止しました(最終{review.get('total')}点、上記URLで内容は確認可能)。issues={review.get('issues')}")
+        return
 
     print("[7/7] 最終バリデーション中...")
     errors = validate_script_and_images(script, image_paths)
