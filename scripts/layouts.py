@@ -13,7 +13,7 @@ v2ではこれに合わせ、全レイアウトで写真をフルブリード(�
 """
 import os
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 
 from utils_image import cover_resize_crop
 from utils_text import blend, fit_wrapped_text, font, wrap_text
@@ -419,8 +419,31 @@ CATEGORY_ACCENT = {
 }
 
 
-def _category_colors(category: str | None) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
-    return CATEGORY_ACCENT.get(category, (NAVY_BADGE, BLUE_ACCENT))
+# 写真が夜景/暗い部屋等で暗い場合用の配色(白パネルではなく暗いスクリムを使う側)。
+# バッジは中間トーンに、強調色は明るいトーンにして、暗い写真の上でも視認できるようにする。
+CATEGORY_ACCENT_DARK = {
+    "空室": ((30, 58, 120), (130, 170, 255)),
+    "賃貸管理": ((20, 90, 92), (120, 230, 220)),
+    "修繕設備トラブル": ((110, 40, 60), (255, 150, 170)),
+    "オーナー損失リスク": ((120, 60, 30), (255, 175, 120)),
+    "収益改善賃貸経営": ((20, 90, 55), (130, 230, 155)),
+    "サブリース": ((80, 40, 120), (205, 160, 255)),
+}
+
+
+def _category_colors(category: str | None, dark_mode: bool = False) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    table = CATEGORY_ACCENT_DARK if dark_mode else CATEGORY_ACCENT
+    default = (CATEGORY_ACCENT_DARK if dark_mode else CATEGORY_ACCENT)["空室"]
+    return table.get(category, default)
+
+
+def _is_dark_photo(img: Image.Image, box: tuple[int, int, int, int] | None = None, threshold: int = 140) -> bool:
+    """写真の該当範囲が暗いかどうかを判定する(夜景のシアタールーム等で、
+    明るい白パネルが不自然に浮いて見える問題への対応。暗い写真には白パネルの
+    代わりに暗いスクリムを使い、文字色も反転させる)"""
+    region = img.crop(box) if box else img
+    stat = ImageStat.Stat(region.convert("L"))
+    return stat.mean[0] < threshold
 
 
 LIST_STRUCTURE_TYPES = {"ランキング型", "チェックリスト型", "数字型", "比較型"}
@@ -445,13 +468,15 @@ def _left_light_panel(img: Image.Image, strength=0.94, edge=0.60, fade_width=0.1
     return Image.composite(white_layer, img.convert("RGB"), overlay)
 
 
-def _light_panel_zone(img: Image.Image, y_top: int, y_bottom: int, strength=0.94, edge=0.60, fade_width=0.18, v_fade=110) -> Image.Image:
-    """写真の左側を白っぽくフェードさせるが、縦方向は[y_top, y_bottom]付近のみに限定する。
-    テキスト量が少ないスライドでも、余った部分を「白い空白」にせず実際の写真をそのまま見せるための処理
-    (以前は全高にパネルをかけていたため、文章が短いスライドで下部が間延びした白い余白に見えていた)"""
+def _panel_zone(img: Image.Image, y_top: int, y_bottom: int, fill_color, strength=0.94, edge=0.60, fade_width=0.18, v_fade=110) -> Image.Image:
+    """写真の左側をfill_colorでフェードさせるが、縦方向は[y_top, y_bottom]付近のみに限定する。
+    テキスト量が少ないスライドでも、余った部分を「空白」にせず実際の写真をそのまま見せるための処理
+    (以前は全高にパネルをかけていたため、文章が短いスライドで下部が間延びした余白に見えていた)。
+    fill_colorに白系を渡せば明るいパネル(明るい写真+黒文字用)、暗い色を渡せば暗いスクリム
+    (暗い写真+白文字用)になる。"""
     w, h = img.size
 
-    # 横方向のアルファ(_left_light_panelと同じロジック)
+    # 横方向のアルファ
     row = []
     for x in range(w):
         t = x / w
@@ -479,8 +504,16 @@ def _light_panel_zone(img: Image.Image, y_top: int, y_bottom: int, strength=0.94
     overlay_v = overlay_v_col.resize((w, h), Image.NEAREST)
 
     overlay = ImageChops.multiply(overlay_h, overlay_v)
-    white_layer = Image.new("RGB", (w, h), WHITE)
-    return Image.composite(white_layer, img.convert("RGB"), overlay)
+    fill_layer = Image.new("RGB", (w, h), fill_color)
+    return Image.composite(fill_layer, img.convert("RGB"), overlay)
+
+
+def _light_panel_zone(img: Image.Image, y_top: int, y_bottom: int, **kwargs) -> Image.Image:
+    return _panel_zone(img, y_top, y_bottom, fill_color=WHITE, **kwargs)
+
+
+def _dark_scrim_zone(img: Image.Image, y_top: int, y_bottom: int, **kwargs) -> Image.Image:
+    return _panel_zone(img, y_top, y_bottom, fill_color=(8, 10, 16), **kwargs)
 
 
 def _speech_bubble(draw, text, x, y, font_size=32, badge_color=NAVY_BADGE):
@@ -499,8 +532,8 @@ def _speech_bubble(draw, text, x, y, font_size=32, badge_color=NAVY_BADGE):
     return box[3] - box[1]
 
 
-def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_height, max_width, accent_color=BLUE_ACCENT):
-    """headingを1文字ずつ描画し、emphasis部分だけ色を変える(強調語がなければ全て黒字)"""
+def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_height, max_width, accent_color=BLUE_ACCENT, base_color=BLACK_TEXT):
+    """headingを1文字ずつ描画し、emphasis部分だけ色を変える(強調語がなければ全てbase_color)"""
     lines = wrap_text(draw, heading, font_obj, max_width)
     emp_start = heading.find(emphasis) if emphasis else -1
     emp_end = emp_start + len(emphasis) if emp_start >= 0 else -1
@@ -510,7 +543,7 @@ def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_he
     for line in lines:
         cx = x
         for ch in line:
-            color = accent_color if emp_start <= idx < emp_end else BLACK_TEXT
+            color = accent_color if emp_start <= idx < emp_end else base_color
             draw.text((cx, cy), ch, font=font_obj, fill=color)
             bbox = draw.textbbox((0, 0), ch, font=font_obj)
             cx += bbox[2] - bbox[0]
@@ -562,8 +595,18 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     tag_y = 64
     content_top = tag_y + tag_h + 34
 
+    # 写真が暗い(夜景・シアタールーム等)場合は、白いパネルではなく暗いスクリム+白文字にする
+    # (明るい写真前提の白パネルが、暗い写真の上では不自然に浮いて見えるため)
+    if has_photo:
+        sample_box = (0, 0, int(WIDTH * 0.7), HEIGHT)
+        dark_mode = _is_dark_photo(base, sample_box)
+    else:
+        dark_mode = False
+    heading_base_color = TEXT_ON_DARK if dark_mode else BLACK_TEXT
+    body_text_color = TEXT_MUTED_DARK if dark_mode else (70, 68, 64)
+
     # カテゴリごとにバッジ色/見出し強調色を変える(黄色スパークル等のブランドカラーは固定)
-    badge_color, accent_color = _category_colors(slide.get("_category"))
+    badge_color, accent_color = _category_colors(slide.get("_category"), dark_mode=dark_mode)
 
     # 下部のチェックバッジ(0〜3個)の占有領域を先に計算しておく
     # (本文の描画量に関わらず、バッジと重ならないようにするため)
@@ -633,14 +676,15 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     total_block_h = fixed_h + body_block_h
     block_bottom = content_top + total_block_h
 
-    # --- 写真を活かすため、白パネルは「タグ＋テキストがある範囲」だけに絞る ---
+    # --- 写真を活かすため、パネル/スクリムは「タグ＋テキストがある範囲」だけに絞る ---
     # (文章量が少ないスライドでも、余った部分は空白にせず実際の写真をそのまま見せる。
-    #  以前は写真全高に白パネルをかけていたため、短い文章のスライドで
-    #  上下に間延びした白い空白が目立っていた)
+    #  以前は写真全高にパネルをかけていたため、短い文章のスライドで
+    #  上下に間延びした空白が目立っていた)
     if has_photo:
         panel_top = max(0, tag_y - 24)
         panel_bottom = min(HEIGHT, block_bottom + 40)
-        img = _light_panel_zone(base, panel_top, panel_bottom)
+        panel_fn = _dark_scrim_zone if dark_mode else _light_panel_zone
+        img = panel_fn(base, panel_top, panel_bottom)
     else:
         img = base
     draw = ImageDraw.Draw(img)
@@ -653,7 +697,7 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
         draw.text((MARGIN, y), method_num, font=num_font, fill=accent_color)
         y += num_block_h
 
-    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, h_line_h, text_max_w, accent_color=accent_color)
+    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, h_line_h, text_max_w, accent_color=accent_color, base_color=heading_base_color)
 
     if show_lead_number:
         y += GAP_LEAD
@@ -662,13 +706,13 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
         num_text = str(total_items)
         draw.text((MARGIN, y), num_text, font=lead_num_font, fill=accent_color)
         nbbox = draw.textbbox((MARGIN, y), num_text, font=lead_num_font)
-        draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
+        draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=heading_base_color)
         y += 150
 
     if body_text:
         y += GAP_BODY
         for line in b_lines:
-            draw.text((MARGIN, y), line, font=b_font, fill=(70, 68, 64))
+            draw.text((MARGIN, y), line, font=b_font, fill=body_text_color)
             y += b_line_h
 
     if bullets:
