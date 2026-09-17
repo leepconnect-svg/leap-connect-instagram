@@ -66,13 +66,14 @@ CREATE TABLE IF NOT EXISTS category_weights (
     updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2026-09-17: 「賃貸管理」はコンテンツカテゴリから除外(オーナー指示)。
+-- 空室(時間貸し/多用途活用を含む)の比重を増やし、残りは元の比率を維持したまま再配分
 INSERT OR IGNORE INTO category_weights (category, weight) VALUES
-    ('空室', 45),
-    ('賃貸管理', 20),
-    ('修繕設備トラブル', 12.5),
-    ('オーナー損失リスク', 10),
-    ('収益改善賃貸経営', 7.5),
-    ('サブリース', 7.5);
+    ('空室', 56),
+    ('修繕設備トラブル', 16),
+    ('オーナー損失リスク', 12),
+    ('収益改善賃貸経営', 9),
+    ('サブリース', 7);
 
 -- 直近使用したレイアウトタイプ(連続使用防止用に直近のみ見れば十分だがログとして残す)
 CREATE TABLE IF NOT EXISTS layout_history (
