@@ -406,6 +406,23 @@ BLUE_ACCENT = (28, 58, 128)
 YELLOW = (255, 199, 40)
 BLACK_TEXT = (20, 20, 22)
 
+# カテゴリごとにバッジ/強調見出しの色相を変える(「毎回同じ色合い」というNG指摘への対応)。
+# 黄色いスパークル/チェックアイコンは全カテゴリ共通のブランドカラーとして固定し、
+# バッジの地色と見出し強調色だけを、上品なジュエルトーンの範囲でカテゴリごとに変える。
+CATEGORY_ACCENT = {
+    "空室": (NAVY_BADGE, BLUE_ACCENT),                     # ネイビー(既定)
+    "賃貸管理": ((10, 42, 46), (18, 112, 114)),             # ディープティール
+    "修繕設備トラブル": ((46, 18, 26), (142, 34, 60)),        # ワインレッド
+    "オーナー損失リスク": ((48, 22, 14), (150, 60, 28)),      # ディープラスト
+    "収益改善賃貸経営": ((12, 40, 28), (24, 108, 64)),        # フォレストグリーン
+    "サブリース": ((34, 16, 48), (96, 44, 142)),             # ディーププラム
+}
+
+
+def _category_colors(category: str | None) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    return CATEGORY_ACCENT.get(category, (NAVY_BADGE, BLUE_ACCENT))
+
+
 LIST_STRUCTURE_TYPES = {"ランキング型", "チェックリスト型", "数字型", "比較型"}
 
 
@@ -466,13 +483,13 @@ def _light_panel_zone(img: Image.Image, y_top: int, y_bottom: int, strength=0.94
     return Image.composite(white_layer, img.convert("RGB"), overlay)
 
 
-def _speech_bubble(draw, text, x, y, font_size=32):
+def _speech_bubble(draw, text, x, y, font_size=32, badge_color=NAVY_BADGE):
     tag_font = _f(FONT_BLACK, font_size)
     bbox = draw.textbbox((0, 0), text, font=tag_font)
     w = bbox[2] - bbox[0]
     pad_x, pad_y = 26, 16
     box = (x, y, x + w + pad_x * 2, y + font_size + pad_y * 2)
-    draw.rounded_rectangle(box, radius=14, fill=NAVY_BADGE)
+    draw.rounded_rectangle(box, radius=14, fill=badge_color)
     draw.text((x + pad_x, y + pad_y - 4), text, font=tag_font, fill=WHITE)
 
     # 右上に黄色いスパークル(注目線)を3本添える
@@ -482,7 +499,7 @@ def _speech_bubble(draw, text, x, y, font_size=32):
     return box[3] - box[1]
 
 
-def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_height, max_width):
+def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_height, max_width, accent_color=BLUE_ACCENT):
     """headingを1文字ずつ描画し、emphasis部分だけ色を変える(強調語がなければ全て黒字)"""
     lines = wrap_text(draw, heading, font_obj, max_width)
     emp_start = heading.find(emphasis) if emphasis else -1
@@ -493,7 +510,7 @@ def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_he
     for line in lines:
         cx = x
         for ch in line:
-            color = BLUE_ACCENT if emp_start <= idx < emp_end else BLACK_TEXT
+            color = accent_color if emp_start <= idx < emp_end else BLACK_TEXT
             draw.text((cx, cy), ch, font=font_obj, fill=color)
             bbox = draw.textbbox((0, 0), ch, font=font_obj)
             cx += bbox[2] - bbox[0]
@@ -502,7 +519,7 @@ def _draw_heading_with_emphasis(draw, heading, emphasis, font_obj, x, y, line_he
     return lines, cy
 
 
-def _bullet_badge(draw, text, x, y, max_width):
+def _bullet_badge(draw, text, x, y, max_width, badge_color=NAVY_BADGE):
     """チェックアイコン付きの紺色バッジ(実際の人気投稿にあった「知らないと損！」的な一言用)"""
     badge_font = _f(FONT_BOLD, 30)
     bbox = draw.textbbox((0, 0), text, font=badge_font)
@@ -510,12 +527,12 @@ def _bullet_badge(draw, text, x, y, max_width):
     pad_x, pad_y, icon_gap = 22, 14, 46
     box_h = 30 + pad_y * 2
     box = (x, y, x + icon_gap + text_w + pad_x * 2, y + box_h)
-    draw.rounded_rectangle(box, radius=box_h // 2, fill=NAVY_BADGE)
+    draw.rounded_rectangle(box, radius=box_h // 2, fill=badge_color)
     # チェックアイコン(黄色い丸+黒いチェック)
     icon_cx, icon_cy = x + pad_x + 14, y + box_h / 2
     draw.ellipse((icon_cx - 14, icon_cy - 14, icon_cx + 14, icon_cy + 14), fill=YELLOW)
-    draw.line((icon_cx - 6, icon_cy, icon_cx - 1, icon_cy + 6), fill=NAVY_BADGE, width=4)
-    draw.line((icon_cx - 1, icon_cy + 6, icon_cx + 8, icon_cy - 7), fill=NAVY_BADGE, width=4)
+    draw.line((icon_cx - 6, icon_cy, icon_cx - 1, icon_cy + 6), fill=badge_color, width=4)
+    draw.line((icon_cx - 1, icon_cy + 6, icon_cx + 8, icon_cy - 7), fill=badge_color, width=4)
     draw.text((x + pad_x + icon_gap, y + pad_y - 2), text, font=badge_font, fill=WHITE)
     return box[3] - box[1]
 
@@ -544,6 +561,9 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     tag_h = tag_font_size + 32  # _speech_bubbleの内部計算(pad_y=16)と一致させた固定値
     tag_y = 64
     content_top = tag_y + tag_h + 34
+
+    # カテゴリごとにバッジ色/見出し強調色を変える(黄色スパークル等のブランドカラーは固定)
+    badge_color, accent_color = _category_colors(slide.get("_category"))
 
     # 下部のチェックバッジ(0〜3個)の占有領域を先に計算しておく
     # (本文の描画量に関わらず、バッジと重ならないようにするため)
@@ -626,21 +646,21 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     draw = ImageDraw.Draw(img)
 
     # --- ここから実際の描画(測定済みのフォント/行/高さをそのまま使い、二重測定しない) ---
-    _speech_bubble(draw, tag_text, MARGIN, tag_y, font_size=tag_font_size)
+    _speech_bubble(draw, tag_text, MARGIN, tag_y, font_size=tag_font_size, badge_color=badge_color)
 
     y = content_top
     if method_num:
-        draw.text((MARGIN, y), method_num, font=num_font, fill=BLUE_ACCENT)
+        draw.text((MARGIN, y), method_num, font=num_font, fill=accent_color)
         y += num_block_h
 
-    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, h_line_h, text_max_w)
+    _, y = _draw_heading_with_emphasis(draw, slide["heading"], slide.get("emphasis", ""), h_font, MARGIN, y, h_line_h, text_max_w, accent_color=accent_color)
 
     if show_lead_number:
         y += GAP_LEAD
         lead_num_font = _f(FONT_BLACK, 130)
         suffix_font = _f(FONT_BLACK, 60)
         num_text = str(total_items)
-        draw.text((MARGIN, y), num_text, font=lead_num_font, fill=BLUE_ACCENT)
+        draw.text((MARGIN, y), num_text, font=lead_num_font, fill=accent_color)
         nbbox = draw.textbbox((MARGIN, y), num_text, font=lead_num_font)
         draw.text((nbbox[2] + 6, y + 60), "選", font=suffix_font, fill=BLACK_TEXT)
         y += 150
@@ -654,7 +674,7 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     if bullets:
         by = bullets_top
         for b in bullets:
-            h = _bullet_badge(draw, b, MARGIN, by, WIDTH - MARGIN * 2)
+            h = _bullet_badge(draw, b, MARGIN, by, WIDTH - MARGIN * 2, badge_color=badge_color)
             by += h + gap
 
     _footer_bar(img, index, total, brand_handle, accent)
