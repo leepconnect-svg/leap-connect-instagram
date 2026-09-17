@@ -54,6 +54,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add db/leapconnect.sqlite3
+          # git add -A: db更新に加え、data/reserved_post_id.txt(予約投稿マーカー)の消費(削除)も
+          # 含めてコミットする。特定パスを直接指定すると、ファイルが存在しない日に
+          # "pathspec did not match any files" で失敗するため、-Aで安全にまとめて扱う。
+          git add -A
           git diff --cached --quiet || git commit -m "chore: update posts database [skip ci]"
           git push

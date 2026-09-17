@@ -30,10 +30,16 @@ from compose_slides import compose_slides
 from quality_review import review_quality, revise_script
 from publish_images import publish_images_to_github
 from post_instagram import post_carousel
+from repost_existing import repost_post
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 QUALITY_THRESHOLD = int(os.environ.get("QUALITY_THRESHOLD", "72"))
 MAX_REVISIONS = 2
+# オーナーが「このテスト内容を次回9時に確実に投稿して」と指示した場合に使う予約マーカー。
+# ここにpost_idが書かれていると、通常の生成パイプラインをスキップしてその投稿を直接公開し、
+# 消費後はファイルを削除して次回以降は通常運転に戻す(1日1投稿を守るため、
+# 通常生成とは絶対に両方実行しない)
+RESERVED_POST_PATH = os.path.join(ROOT, "data", "reserved_post_id.txt")
 
 
 def require_env(*names: str) -> dict:
@@ -88,6 +94,23 @@ def reject(post_id: str, reason: str) -> None:
 def main():
     dry_run = os.environ.get("DRY_RUN", "1") == "1"
     brand_handle = os.environ.get("BRAND_HANDLE", "@leap_connect")
+
+    # 予約投稿(オーナーが確認済みのテスト内容を「次回9時に確実に投稿して」と指示した場合)が
+    # あれば、通常の生成パイプラインは一切実行せず、それだけを投稿して終了する。
+    # 1日1投稿を守るため、予約投稿と通常生成を同じ実行で両方行うことは絶対にしない。
+    if os.path.exists(RESERVED_POST_PATH):
+        with open(RESERVED_POST_PATH, encoding="utf-8") as f:
+            reserved_id = f.read().strip()
+        if reserved_id:
+            print(f"[RESERVED] 予約済みの投稿を優先実行します: post_id={reserved_id}")
+            ig_env = require_env("IG_USER_ID", "IG_ACCESS_TOKEN") if not dry_run else {}
+            try:
+                repost_post(reserved_id, ig_env.get("IG_USER_ID"), ig_env.get("IG_ACCESS_TOKEN"), ROOT, dry_run=dry_run)
+            finally:
+                # 成功/失敗にかかわらず一度きりの予約として消費し、次回以降は通常運転に戻す
+                os.remove(RESERVED_POST_PATH)
+            return
+        os.remove(RESERVED_POST_PATH)
 
     required = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
     if not dry_run:

@@ -56,25 +56,20 @@ def build_caption(caption: str, hashtags: list[str]) -> str:
     return f"{caption}\n.\n.\n.\n{' '.join(hashtags)}"
 
 
-def main():
-    post_id = os.environ.get("REPOST_POST_ID")
-    if not post_id:
-        print("[ERROR] REPOST_POST_ID が未設定です", file=sys.stderr)
-        sys.exit(1)
-    env = require_env("IG_USER_ID", "IG_ACCESS_TOKEN")
-
+def repost_post(post_id: str, ig_user_id: str, ig_access_token: str, repo_root: str, dry_run: bool = False) -> str | None:
+    """DBに保存済みの投稿(post_id)を再生成せずそのままInstagramへ投稿する。
+    main.py(RESERVED_POST_ID経由)とrepost_existing.py(単体実行)の両方から使う共通処理。
+    dry_run=Trueの場合は実際には投稿せず、内容の確認のみ行う。"""
     db.init_db()
     post = db.get_post(post_id)
     if not post:
-        print(f"[ERROR] post_id={post_id} がDBに見つかりません", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"post_id={post_id} がDBに見つかりません")
     if post.get("status") == "posted":
-        print(f"[ERROR] post_id={post_id} は既に投稿済みです(ig_media_id={post.get('ig_media_id')})", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"post_id={post_id} は既に投稿済みです(ig_media_id={post.get('ig_media_id')})")
 
     image_paths = json.loads(post["image_paths"])
     hashtags = json.loads(post["hashtags"])
-    image_urls = local_paths_to_jsdelivr(image_paths, ROOT)
+    image_urls = local_paths_to_jsdelivr(image_paths, repo_root)
     caption = build_caption(post["caption"], hashtags)
 
     print(f"  post_id = {post_id}")
@@ -84,10 +79,24 @@ def main():
     for u in image_urls:
         print(f"    {u}")
 
-    media_id = post_carousel(env["IG_USER_ID"], env["IG_ACCESS_TOKEN"], image_urls, caption)
+    if dry_run:
+        print("[DRY_RUN] Instagramへの投稿はスキップしました")
+        return None
+
+    media_id = post_carousel(ig_user_id, ig_access_token, image_urls, caption)
     db.update_post(post_id, status="posted", ig_media_id=media_id, posted_at=db.now_iso(),
                     reject_reason=None)
     print(f"  公開しました: media_id={media_id}")
+    return media_id
+
+
+def main():
+    post_id = os.environ.get("REPOST_POST_ID")
+    if not post_id:
+        print("[ERROR] REPOST_POST_ID が未設定です", file=sys.stderr)
+        sys.exit(1)
+    env = require_env("IG_USER_ID", "IG_ACCESS_TOKEN")
+    repost_post(post_id, env["IG_USER_ID"], env["IG_ACCESS_TOKEN"], ROOT)
 
 
 if __name__ == "__main__":
