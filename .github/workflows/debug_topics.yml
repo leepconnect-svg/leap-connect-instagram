@@ -1,0 +1,31 @@
+name: leap_connect Debug Topic Selection (診断用)
+
+# テーマ企画AIが実際にどんな候補を出し、どうスコアリングされて選ばれているかを
+# 画像生成やInstagram投稿を一切行わずに確認するための診断用ワークフロー。
+# ANTHROPIC_API_KEYのみ使用(OpenAI/Instagramへのコストや投稿は一切発生しない)。
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run topic selection (diagnostic only, no images/posting)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/generate_topics.py
