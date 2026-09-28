@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from ai_clients import claude_json
 from brand_context import BRAND_CONTEXT, CATEGORY_LIST, ANGLE_HINTS, STRUCTURE_TYPES, SPACE_USE_CASES
 from db import db
+from generate_script import is_vacancy_reuse_topic
 
 SYSTEM_PROMPT = BRAND_CONTEXT + """
 
@@ -143,6 +144,14 @@ def score_candidate(candidate: dict, recent_posts: list[dict], category_weights:
     return weighted - overlap_penalty * 30 + category_bonus
 
 
+def _vacancy_reuse_recent_ratio(recent_posts: list[dict], window: int = 10) -> float:
+    recent = recent_posts[:window]
+    if not recent:
+        return 1.0  # 実績が無い場合は強制しない(0で割らないためのガード)
+    count = sum(1 for p in recent if p.get("structure_type") == "空室活用3提案型")
+    return count / len(recent)
+
+
 def generate_and_select_topic(anthropic_api_key: str, n_candidates: int = 10) -> dict:
     recent_posts = db.get_recent_posts(limit=30)
     recent_texts = [p.get("theme", "") for p in recent_posts] + [p.get("title", "") for p in recent_posts]
@@ -179,6 +188,24 @@ def generate_and_select_topic(anthropic_api_key: str, n_candidates: int = 10) ->
     # 重複していない候補を優先的に選ぶ。全滅なら最高得点のものを使う(ログに警告)
     non_dupe = [x for x in scored if not x[2]]
     chosen_score, chosen, is_dupe, matched = (non_dupe[0] if non_dupe else scored[0])
+
+    # --- 「空室の時間貸し/多用途活用」を積極的に扱うというオーナーの明示指示への対応 ---
+    # スコア競争だけに任せると、AIが自己採点でこのテーマの候補を他カテゴリより
+    # 低く評価しがちで、実際にはほぼ選ばれない実績があった(9日間連続で0回選定)。
+    # プロンプトでの指示だけでは不十分なため、直近実績が目標比率(50%)を下回っている場合は
+    # 通常のスコア最上位候補ではなく、今回の候補の中で最もスコアが高い
+    # 「空室の時間貸し/多用途活用」候補を優先的に選ぶ(コード側での比率保証)。
+    quota_window = 10
+    recent_ratio = _vacancy_reuse_recent_ratio(recent_posts, window=quota_window)
+    target_ratio = 0.5
+    if recent_ratio < target_ratio:
+        vacancy_candidates = [x for x in scored if is_vacancy_reuse_topic(x[1]) and not x[2]]
+        if vacancy_candidates:
+            forced_score, forced_chosen, forced_is_dupe, forced_matched = vacancy_candidates[0]
+            if forced_chosen is not chosen:
+                print(f"[QUOTA] 直近{quota_window}件中の空室活用3提案型比率が{recent_ratio*100:.0f}%(目標{target_ratio*100:.0f}%)のため、"
+                      f"スコア最上位『{chosen.get('theme')}』ではなく空室活用系『{forced_chosen.get('theme')}』を優先選定します")
+                chosen_score, chosen, is_dupe, matched = forced_score, forced_chosen, forced_is_dupe, forced_matched
 
     if is_dupe:
         print(f"[WARN] 選定テーマが過去投稿と類似しています(類似元: {matched})。企画AIへの再指示を検討してください。", file=sys.stderr)
