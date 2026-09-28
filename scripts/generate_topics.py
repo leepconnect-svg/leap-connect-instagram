@@ -183,8 +183,13 @@ def generate_and_select_topic(anthropic_api_key: str, n_candidates: int = 10) ->
     if is_dupe:
         print(f"[WARN] 選定テーマが過去投稿と類似しています(類似元: {matched})。企画AIへの再指示を検討してください。", file=sys.stderr)
 
+    # 各候補のコピー(+最終スコア)を作っておく。chosen自身と同じdictを直接入れると、
+    # chosen["_all_candidates"]の中にchosen自身が含まれ、json.dumps時に
+    # "Circular reference detected" になるため、浅いコピーにしておく
+    all_candidates_out = [{**c, "_total_score": s, "_is_dupe": dup} for s, c, dup, _ in scored]
+
     chosen["_score"] = chosen_score
-    chosen["_all_candidates"] = [c for _, c, _, _ in scored]
+    chosen["_all_candidates"] = all_candidates_out
 
     db.record_topic_usage(chosen["theme"], chosen.get("category", ""), chosen_score)
     return chosen
@@ -196,4 +201,13 @@ if __name__ == "__main__":
         print("ANTHROPIC_API_KEY が未設定です", file=sys.stderr)
         sys.exit(1)
     topic = generate_and_select_topic(api_key)
+
+    print("=== 全候補(スコア降順) ===")
+    for c in topic["_all_candidates"]:
+        mark = "★" if c["theme"] == topic["theme"] else "  "
+        dupe = "[重複]" if c.get("_is_dupe") else ""
+        print(f"{mark} {c['_total_score']:6.1f}点 [{c.get('category')}] {c['theme']} {dupe}")
+
+    print()
+    print("=== 選定結果 ===")
     print(json.dumps(topic, ensure_ascii=False, indent=2))
