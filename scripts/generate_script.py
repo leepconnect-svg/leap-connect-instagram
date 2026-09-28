@@ -173,7 +173,11 @@ VACANCY_REUSE_PROMPT_TEMPLATE = """次のテーマで「空室の時間貸し/�
 各スライドのimage_promptの条件:
 ・実在する特定物件を想起させない一般的な室内写真であること
 ・"no text, no letters, no watermark" を必ず含める
-・清潔感・自然光・高級感のある日本のマンションを想定した室内(過剰な高級ホテル風は禁止)
+・清潔感のある日本のマンションを想定した室内(過剰な高級ホテル風は禁止)
+・method_1〜3のimage_promptは、そのスライドの見出しに書いた用途「そのもの」を描写すること
+  (見出しと違う用途の写真は厳禁)。用途を象徴する小道具・家具・雰囲気に加え、
+  照明の明るさもその用途らしくしてよい(例: シアタールームは暗めの間接照明、
+  レンタルキッチンは明るい調理場)。3枚の写真は互いに見た目が大きく異なるようにする
 ・method_1〜3では、その用途が一目で伝わる家具/設備を配置する
   (例: レンタルスタジオ→鏡・バレエバー、撮影スタジオ→照明・背景、
   貸し会議室→テーブル・チェア・モニター、プライベートジム→トレーニング機器、
@@ -288,6 +292,12 @@ IMAGE_PROMPT_SUFFIX = (
     ", no text, no letters, no watermark, no logo, photorealistic professional real estate photography, "
     "natural lighting, clean and upscale atmosphere, navy and gold accent tones where natural, 4:5 vertical composition"
 )
+# 空室活用の活用法1〜3用: 「不動産の一般的な室内写真」に寄せず、その用途らしい道具・照明・雰囲気を優先する
+IMAGE_PROMPT_SUFFIX_USE_CASE = (
+    ", no text, no letters, no watermark, no logo, photorealistic interior photograph, "
+    "the room is clearly staged for this specific use with its characteristic props and lighting, "
+    "distinctive and visually different from a plain empty apartment room, 4:5 vertical composition"
+)
 
 
 def generate_script(anthropic_api_key: str, topic: dict) -> dict:
@@ -331,7 +341,9 @@ def generate_script(anthropic_api_key: str, topic: dict) -> dict:
         raise RuntimeError(f"スライドが6枚ではありません(実際: {len(slides)}枚): {result}")
 
     for slide in slides:
-        slide["image_prompt"] = slide.get("image_prompt", "").strip() + IMAGE_PROMPT_SUFFIX
+        is_use_case_slide = vacancy_reuse and slide.get("role") in ("method_1", "method_2", "method_3")
+        suffix = IMAGE_PROMPT_SUFFIX_USE_CASE if is_use_case_slide else IMAGE_PROMPT_SUFFIX
+        slide["image_prompt"] = slide.get("image_prompt", "").strip() + suffix
 
     # 空室多用途活用テーマは、その専用に作ったレイアウトKを常に使う
     result["layout_type"] = "K" if vacancy_reuse else choose_layout(topic.get("structure_type", ""))

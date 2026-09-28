@@ -2,6 +2,7 @@
 STEP 5: AIによる投稿品質審査(100点満点)。
 表紙画像等を実際に見せて(vision)評価させ、80点未満なら自動修正して再評価する。
 """
+import difflib
 import json
 import os
 import sys
@@ -145,6 +146,10 @@ REVISE_USER_PROMPT_TEMPLATE = """以下の台本を、審査結果に基づい�
 
 出力は元と同じJSON構造(title, slides[6件、各役割role/heading/body/image_prompt], caption, hashtags, cta_text)で、
 image_promptとroleは元の値をそのまま維持し、それ以外を改善してください。
+
+【厳守】背景写真は修正前の台本のimage_promptで既に生成済みです。
+各スライドの主題(特に活用法1〜3の「どの用途を扱うか」)は元のまま変えず、
+同じ用途について文章・数字・注意書き等を改善してください(用途そのものの差し替えは禁止)。
 """
 
 
@@ -169,8 +174,20 @@ def revise_script(anthropic_api_key: str, script: dict, review_result: dict) -> 
     # image_prompt/roleは元のスライドから強制的に引き継ぐ(写真との対応ズレを防ぐ)
     for i, slide in enumerate(result.get("slides", [])):
         if i < len(script["slides"]):
-            slide["image_prompt"] = script["slides"][i]["image_prompt"]
-            slide["role"] = script["slides"][i]["role"]
+            orig = script["slides"][i]
+            slide["image_prompt"] = orig["image_prompt"]
+            slide["role"] = orig["role"]
+            # 活用法1〜3は、修正で見出しの主題(用途)が別物に差し替わると、生成済みの写真と
+            # 食い違う(例: ヨガスタジオの写真に「推し活スペース」の見出しが付く)。
+            # 見出しが元と大きく異なる場合は、その1枚だけ元の内容に戻す。
+            if orig["role"] in ("method_1", "method_2", "method_3"):
+                ratio = difflib.SequenceMatcher(None, orig.get("heading", ""), slide.get("heading", "")).ratio()
+                if ratio < 0.5:
+                    print(f"  [REVISE-GUARD] {orig['role']}の見出しが『{orig.get('heading')}』→『{slide.get('heading')}』と"
+                          f"大きく変わり写真と食い違うため、この1枚は修正前の内容に戻します")
+                    for key in ("heading", "body", "emphasis", "bullets"):
+                        if key in orig:
+                            slide[key] = orig[key]
 
     for key in ("layout_type", "structure_type", "category", "theme", "sub_theme"):
         result[key] = script.get(key)

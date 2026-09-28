@@ -437,13 +437,20 @@ def _category_colors(category: str | None, dark_mode: bool = False) -> tuple[tup
     return table.get(category, default)
 
 
-def _is_dark_photo(img: Image.Image, box: tuple[int, int, int, int] | None = None, threshold: int = 140) -> bool:
-    """写真の該当範囲が暗いかどうかを判定する(夜景のシアタールーム等で、
+def _is_dark_photo(img: Image.Image, box: tuple[int, int, int, int] | None = None, threshold: int = 140,
+                   max_bright_ratio: float = 0.25) -> bool:
+    """写真の該当範囲が「本当に暗い」かどうかを判定する(夜景のシアタールーム等で、
     明るい白パネルが不自然に浮いて見える問題への対応。暗い写真には白パネルの
-    代わりに暗いスクリムを使い、文字色も反転させる)"""
-    region = img.crop(box) if box else img
-    stat = ImageStat.Stat(region.convert("L"))
-    return stat.mean[0] < threshold
+    代わりに暗いスクリムを使い、文字色も反転させる)。
+    平均輝度がthreshold未満で、かつ明るい画素(輝度150超)が全体のmax_bright_ratio以下の場合のみ暗いと判定する。
+    (明るい部屋でも暗い窓枠や床のマットが混ざると平均が下がるため、平均だけで判定すると誤判定する)"""
+    region = (img.crop(box) if box else img).convert("L")
+    mean = ImageStat.Stat(region).mean[0]
+    if mean >= threshold:
+        return False
+    hist = region.histogram()
+    bright_ratio = sum(hist[151:]) / max(1, sum(hist))
+    return bright_ratio <= max_bright_ratio
 
 
 LIST_STRUCTURE_TYPES = {"ランキング型", "チェックリスト型", "数字型", "比較型"}
@@ -595,18 +602,7 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     tag_y = 64
     content_top = tag_y + tag_h + 34
 
-    # 写真が暗い(夜景・シアタールーム等)場合は、白いパネルではなく暗いスクリム+白文字にする
-    # (明るい写真前提の白パネルが、暗い写真の上では不自然に浮いて見えるため)
-    if has_photo:
-        sample_box = (0, 0, int(WIDTH * 0.7), HEIGHT)
-        dark_mode = _is_dark_photo(base, sample_box)
-    else:
-        dark_mode = False
-    heading_base_color = TEXT_ON_DARK if dark_mode else BLACK_TEXT
-    body_text_color = TEXT_MUTED_DARK if dark_mode else (70, 68, 64)
-
-    # カテゴリごとにバッジ色/見出し強調色を変える(黄色スパークル等のブランドカラーは固定)
-    badge_color, accent_color = _category_colors(slide.get("_category"), dark_mode=dark_mode)
+    # (暗い写真かどうかの判定と、それに応じた配色は、テキスト範囲が確定した後に行う)
 
     # 下部のチェックバッジ(0〜3個)の占有領域を先に計算しておく
     # (本文の描画量に関わらず、バッジと重ならないようにするため)
@@ -676,6 +672,19 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
     total_block_h = fixed_h + body_block_h
     block_bottom = content_top + total_block_h
 
+    # 写真が暗い(夜景・シアタールーム等)場合は、白いパネルではなく暗いスクリム+白文字にする。
+    # 判定は「実際に文字が乗る範囲」だけの明るさで行い(写真全体だと、明るい部屋でも
+    # 暗い窓枠や床の一部に引っ張られて誤判定し、黒い四角のように見えてしまうため)、
+    # しきい値も厳しめ(本当に暗い写真だけが対象)にしている。
+    if has_photo:
+        sample_box = (0, 0, int(WIDTH * 0.66), min(HEIGHT, block_bottom + 40))
+        dark_mode = _is_dark_photo(base, sample_box, threshold=105)
+    else:
+        dark_mode = False
+    heading_base_color = TEXT_ON_DARK if dark_mode else BLACK_TEXT
+    body_text_color = TEXT_MUTED_DARK if dark_mode else (70, 68, 64)
+    badge_color, accent_color = _category_colors(slide.get("_category"), dark_mode=dark_mode)
+
     # --- 写真を活かすため、パネル/スクリムは「タグ＋テキストがある範囲」だけに絞る ---
     # (文章量が少ないスライドでも、余った部分は空白にせず実際の写真をそのまま見せる。
     #  以前は写真全高にパネルをかけていたため、短い文章のスライドで
@@ -684,7 +693,7 @@ def render_K(slide, index, total, photo_path, brand_handle, accent, structure_ty
         panel_top = max(0, tag_y - 24)
         panel_bottom = min(HEIGHT, block_bottom + 40)
         panel_fn = _dark_scrim_zone if dark_mode else _light_panel_zone
-        img = panel_fn(base, panel_top, panel_bottom)
+        img = panel_fn(base, panel_top, panel_bottom, **({"strength": 0.86} if dark_mode else {}))
     else:
         img = base
     draw = ImageDraw.Draw(img)
